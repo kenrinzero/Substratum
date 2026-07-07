@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+# operator-dropped retail fixtures + non-redistributable homebrew:
+# never committed (DESIGN.md section 5)
+fixtures/_local/*
+!fixtures/_local/README.md
+tools/

@@ -1,0 +1,3 @@
+# Byte-exactness is this repo's premise: no eol conversion, ever.
+# Fixtures, manifests, and reference bytes are binary truth.
+* -text

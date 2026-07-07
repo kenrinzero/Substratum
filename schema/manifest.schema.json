@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "substratum/manifest.schema.json",
+  "title": "Substratum file-tree manifest",
+  "description": "The downstream handoff / fixture-expected shape (DESIGN.md par.2). Canonical serialization: sorted keys, entries sorted by path, ensure_ascii, trailing newline.",
+  "type": "object",
+  "required": ["format", "source", "tool_versions", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "required": ["name", "sha256", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tool_versions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind", "offset", "size"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "pattern": "^[^/]" },
+          "kind": { "enum": ["file", "dir"] },
+          "offset": { "type": "integer", "minimum": 0 },
+          "size": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

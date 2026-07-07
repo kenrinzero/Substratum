@@ -1,0 +1,1 @@
+{"entries":[{"kind":"file","offset":107,"path":"DATA/A.BIN","size":256},{"kind":"file","offset":363,"path":"DATA/B.BIN","size":256},{"kind":"file","offset":80,"path":"README.TXT","size":27}],"format":"toyfs","source":{"name":"toy.bin","sha256":"13caa20f1feb6ce5185eb23f198248640e6671d0e8df2ce1af8a90f478ffd37c","size":620},"tool_versions":{"generator":"make_toy_fixture v1"}}

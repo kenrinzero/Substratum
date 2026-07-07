@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "substratum"
+version = "0.0.1"
+description = "One normalized byte view over the game-preservation container zoo"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+
+[dependency-groups]
+dev = ["pytest>=8", "jsonschema>=4.18", "pycdlib>=1.14"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["substratum"]
