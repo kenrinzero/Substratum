@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Vendor the pinned differential tools into gitignored tools/ (prep rows
+`vendor-chdman` + `vendor-dolphin-tool-or-wit`, NORMALIZERS.md).
+
+Idempotent re-provisioning: binaries stay out of git (tools/ is ignored);
+this script + the sha256 pins below + the NORMALIZERS.md rows are the
+committed record. Re-running verifies-and-skips when a tool is already
+present with the pinned banner.
+
+Tool choices (researched 2026-07-17):
+- chdman: extracted from the official MAME 0.288 Windows SFX (a 7z
+  archive; never executed) — mamedev publishes SHA256SUMS beside it.
+  License: chdman.cpp is BSD-3-Clause, the linked whole is GPL-2.0+.
+- wit v3.05a (Wiimms ISO Tools, GPL-2.0) over dolphin-tool: its listing
+  carries sizes+offsets (dolphin-tool --list prints bare names), it has a
+  real `wit version` command, and the cygwin64 zip is self-contained
+  (dolphin-tool needs the VC++ 2022 redistributable).
+
+First run prints any sha256 marked TOFU (trust-on-first-use) so it can be
+pinned into this file; a later run on drifted bytes then fails loudly.
+"""
+
+import hashlib
+import re
+import subprocess
+import sys
+import urllib.request
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TOOLS = ROOT / "tools"
+DL = TOOLS / "_dl"
+
+MAME_VERSION = "0.288"
+MAME_SFX = "mame0288b_x64.exe"
+MAME_URL = f"https://github.com/mamedev/mame/releases/download/mame0288/{MAME_SFX}"
+MAME_SUMS_URL = "https://github.com/mamedev/mame/releases/download/mame0288/SHA256SUMS"
+MAME_SFX_SHA256 = "e4ae20a2359d716fb16824961b1b0fb28d8662ffd1298504edff39d368bb4a55"
+
+WIT_VERSION = "v3.05a"
+WIT_ZIP = "wit-v3.05a-r8638-cygwin64.zip"
+WIT_URL = f"https://wit.wiimm.de/download/{WIT_ZIP}"
+WIT_ZIP_SHA256 = "049670558970f0cea2796d68e0ba1e48491474b5708bf12a95ab8a185f4e59c1"
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch(url: str, dest: Path) -> None:
+    print(f"fetching {url} -> {dest.name}")
+    req = urllib.request.Request(url, headers={"User-Agent": "substratum-vendor/1"})
+    with urllib.request.urlopen(req) as resp, dest.open("wb") as out:
+        while chunk := resp.read(1 << 20):
+            out.write(chunk)
+    print(f"  {dest.stat().st_size} bytes, sha256 {sha256_of(dest)}")
+
+
+def run_banner(cmd: list[str]) -> str:
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return (p.stdout + p.stderr).strip().splitlines()[0] if (p.stdout + p.stderr).strip() else ""
+
+
+def check_pin(path: Path, expected: str | None, what: str) -> None:
+    got = sha256_of(path)
+    if expected is None:
+        print(f"  TOFU {what}: pin sha256 {got} into this script")
+    elif got != expected:
+        raise SystemExit(f"{what} sha256 drift: got {got}, pinned {expected}")
+
+
+def vendor_chdman() -> None:
+    exe = TOOLS / "chdman" / "chdman.exe"
+    if exe.exists():
+        banner = run_banner([str(exe)])
+        m = re.search(r"manager (\d+\.\d+)", banner)
+        if m and m.group(1) == MAME_VERSION:
+            print(f"chdman already vendored: {banner}")
+            return
+        raise SystemExit(f"tools/chdman/chdman.exe exists but banner is wrong: {banner!r}")
+
+    DL.mkdir(parents=True, exist_ok=True)
+    sums = DL / "SHA256SUMS"
+    fetch(MAME_SUMS_URL, sums)
+    m = re.search(rf"([0-9a-f]{{64}})\s+\*?{re.escape(MAME_SFX)}", sums.read_text("utf-8"))
+    if not m:
+        raise SystemExit(f"{MAME_SFX} not in upstream SHA256SUMS")
+    upstream_sha = m.group(1)
+
+    sfx = DL / MAME_SFX
+    fetch(MAME_URL, sfx)
+    if sha256_of(sfx) != upstream_sha:
+        raise SystemExit("MAME SFX does not match upstream SHA256SUMS")
+    check_pin(sfx, MAME_SFX_SHA256, "mame sfx")
+
+    (TOOLS / "chdman").mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["7z", "e", str(sfx), "chdman.exe", f"-o{TOOLS / 'chdman'}", "-y"],
+        capture_output=True, check=True,
+    )
+    banner = run_banner([str(exe)])
+    if not re.search(rf"manager {re.escape(MAME_VERSION)}\b", banner):
+        raise SystemExit(f"extracted chdman banner mismatch: {banner!r}")
+    print(f"chdman OK: {banner}\n  exe sha256 {sha256_of(exe)}")
+    sfx.unlink()  # 82 MB; the pins above re-fetch it if ever needed
+    sums.unlink()
+
+
+def vendor_wit() -> None:
+    exe = TOOLS / "wit" / "wit.exe"
+    if exe.exists():
+        banner = run_banner([str(exe), "version"])
+        if WIT_VERSION in banner:
+            print(f"wit already vendored: {banner}")
+            return
+        raise SystemExit(f"tools/wit/wit.exe exists but version is wrong: {banner!r}")
+
+    DL.mkdir(parents=True, exist_ok=True)
+    zpath = DL / WIT_ZIP
+    fetch(WIT_URL, zpath)
+    check_pin(zpath, WIT_ZIP_SHA256, "wit zip")
+
+    (TOOLS / "wit").mkdir(parents=True, exist_ok=True)
+    kept = 0
+    with zipfile.ZipFile(zpath) as z:
+        for member in z.namelist():
+            p = Path(member)
+            if p.parent.name == "bin" and (p.name == "wit.exe" or p.name.endswith(".dll")):
+                (TOOLS / "wit" / p.name).write_bytes(z.read(member))
+                kept += 1
+    if not exe.exists():
+        raise SystemExit("wit.exe not found in zip bin/")
+    banner = run_banner([str(exe), "version"])
+    if WIT_VERSION not in banner:
+        raise SystemExit(f"extracted wit version mismatch: {banner!r}")
+    print(f"wit OK ({kept} files): {banner}\n  exe sha256 {sha256_of(exe)}")
+    zpath.unlink()
+
+
+def main() -> None:
+    which = set(sys.argv[1:]) or {"chdman", "wit"}
+    if "chdman" in which:
+        vendor_chdman()
+    if "wit" in which:
+        vendor_wit()
+
+
+if __name__ == "__main__":
+    main()
