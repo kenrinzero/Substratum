@@ -7,4 +7,8 @@ dist/
 # never committed (DESIGN.md section 5)
 fixtures/_local/*
 !fixtures/_local/README.md
+# gc-fst retail fixtures: the extracted reference bytes (full file payloads)
+# are re-extracted by seedtools/stage_gc_fst.py from the gitignored ISO and
+# never committed; only the metadata manifest commits.
+fixtures/gc_fst/*/reference/
 tools/
