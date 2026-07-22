@@ -27,12 +27,23 @@ FIXTURE = ROOT / "fixtures" / "gc_fst" / "hulk"
 ISO = ROOT / "fixtures" / "_local" / "game.iso"
 REFERENCE = FIXTURE / "reference"
 
+# Nested fixture (proof-strengthening): built on demand by the seedtool
+# because the ~1.4 GiB image is gitignored. See the design spec at
+# docs/superpowers/specs/2026-07-22-gc-fst-nested-fixture-design.md.
+NESTED = ROOT / "fixtures" / "gc_fst" / "nested"
+NESTED_ISO = NESTED / "game.iso"
+NESTED_REFERENCE = NESTED / "reference"
+
 # Tool pin — matches what stage_gc_fst.py wrote into the manifest.
 # Re-authoring on a drifted wit changes the expected manifest and fails
 # check 2 loudly.
 TOOLS = {
     "wit": "Wiimms ISO Tool v3.05a r8638 cygwin64 - Dirk Clemens - 2022-08-27",
     "generator": "stage_gc_fst v1",
+}
+NESTED_TOOLS = {
+    "wit": TOOLS["wit"],
+    "generator": "make_gc_fst_nested_fixture v1",
 }
 
 skip_if_no_iso = pytest.mark.skipif(
@@ -155,3 +166,119 @@ def test_paths_posix_and_no_leading_slash():
 
 # mirror the normalizer's node-size constant for the truncation test
 _NODE_SIZE = 0x0C
+
+
+# ---------------------------------------------------------------------------
+# Nested-directory fixture (proof-strengthening — see design spec
+# docs/superpowers/specs/2026-07-22-gc-fst-nested-fixture-design.md).
+# The flat Hulk fixture above cannot exercise the recursive FST traversal;
+# this block adds a hand-authored nested FST (4 files, 2 dirs) with a genuine
+# wit two-party differential on nested bytes.
+# ---------------------------------------------------------------------------
+
+
+def _ensure_nested_fixture():
+    """Materialize the nested disc image + reference bytes on first use.
+
+    The ~1.4 GiB image is gitignored; the seedtool is the committed recipe.
+    Skips the whole nested group when the retail ISO is absent (the seedtool
+    borrows its sys/ region).
+    """
+    if not ISO.exists():
+        pytest.skip("retail ISO absent — nested fixture cannot be staged")
+    if NESTED_ISO.exists() and NESTED_REFERENCE.exists():
+        return
+    import subprocess
+    subprocess.run(
+        ["uv", "run", "python", str(ROOT / "seedtools" / "make_gc_fst_nested_fixture.py")],
+        cwd=str(ROOT), check=True, capture_output=True,
+    )
+
+
+@pytest.fixture(scope="session")
+def nested_iso():
+    _ensure_nested_fixture()
+    return NESTED_ISO
+
+
+@skip_if_no_iso
+def test_nested_fixture_full_gate(nested_iso):
+    """The full four-check gate passes on the nested fixture.
+
+    This is the proof-strengthening payoff: recursive traversal + byte-range
+    fidelity against wit, on nested bytes (the flat fixture tests neither).
+    """
+    problems = run_checks(
+        normalize_gc_fst,
+        nested_iso,
+        NESTED / "expected.manifest.json",
+        NESTED_REFERENCE,
+        nested_iso.name,
+        sha256_of(nested_iso),
+        NESTED_TOOLS,
+    )
+    assert problems == []
+
+
+@skip_if_no_iso
+def test_nested_dir_close_resume_is_structural_red(nested_iso, tmp_path):
+    """Corrupting the nested/ directory's `next` (close) field fails structurally.
+
+    Sets nested/'s next to its own index so the subtree never closes — the
+    parser must refuse this rather than mis-walk. This targets the exact
+    traversal mechanic (subtree close + resume) the flat fixture cannot test.
+    """
+    bad = tmp_path / "nested_bad_close.iso"
+    data = bytearray(nested_iso.read_bytes())
+    fst_off = struct.unpack(">I", bytes(data[0x424:0x428]))[0]
+    # node 4 (nested dir): base = fst_off + 4*_NODE_SIZE; next field at +8.
+    node_base = fst_off + 4 * _NODE_SIZE
+    struct.pack_into(">I", data, node_base + 8, 4)  # next = self -> never closes
+    bad.write_bytes(bytes(data))
+    problems = run_checks(
+        normalize_gc_fst, bad, NESTED / "expected.manifest.json",
+        NESTED_REFERENCE, nested_iso.name, sha256_of(nested_iso), NESTED_TOOLS,
+    )
+    assert problems and problems[0].startswith("structural:")
+
+
+@skip_if_no_iso
+def test_nested_parent_mismatch_is_structural_red(nested_iso, tmp_path):
+    """A child directory whose parent index points at the wrong parent fails.
+
+    Flips the nested/ dir's parent field to a bogus value; the parser refuses
+    (parent != enclosing dir).
+    """
+    bad = tmp_path / "nested_bad_parent.iso"
+    data = bytearray(nested_iso.read_bytes())
+    fst_off = struct.unpack(">I", bytes(data[0x424:0x428]))[0]
+    # node 4 (nested dir): parent field at node_base+4..+7. Set to a bogus
+    # index (not 2 = data, its real parent).
+    node_base = fst_off + 4 * _NODE_SIZE
+    struct.pack_into(">I", data, node_base + 4, 99)
+    bad.write_bytes(bytes(data))
+    problems = run_checks(
+        normalize_gc_fst, bad, NESTED / "expected.manifest.json",
+        NESTED_REFERENCE, nested_iso.name, sha256_of(nested_iso), NESTED_TOOLS,
+    )
+    assert problems and problems[0].startswith("structural:")
+
+
+def test_nested_manifest_validates_against_schema():
+    """The nested manifest validates and carries both file and dir kinds.
+
+    The flat fixture's manifest is {file} only; this asserts nesting actually
+    appears in the committed manifest (no ISO needed — it's committed truth).
+    """
+    schema = json.loads((ROOT / "schema" / "manifest.schema.json").read_text("utf-8"))
+    doc = json.loads((NESTED / "expected.manifest.json").read_text("ascii"))
+    jsonschema.Draft202012Validator(schema).validate(doc)
+    assert doc["format"] == "gc-fst"
+    assert doc["source"]["name"] == "game.iso"
+    assert doc["source"]["size"] == 1459978240
+    kinds = {e["kind"] for e in doc["entries"]}
+    assert kinds == {"file", "dir"}
+    # the resume edge-case file is present
+    paths = {e["path"] for e in doc["entries"]}
+    assert "data/after.txt" in paths
+    assert "data/nested/deep.txt" in paths

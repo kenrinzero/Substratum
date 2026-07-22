@@ -11,4 +11,8 @@ fixtures/_local/*
 # are re-extracted by seedtools/stage_gc_fst.py from the gitignored ISO and
 # never committed; only the metadata manifest commits.
 fixtures/gc_fst/*/reference/
+# gc-fst nested fixture: the ~1.4 GiB disc image is materialized on demand by
+# seedtools/make_gc_fst_nested_fixture.py (the committed recipe); only the
+# metadata manifest commits. Built from the gitignored retail ISO's sys region.
+fixtures/gc_fst/nested/game.iso
 tools/
