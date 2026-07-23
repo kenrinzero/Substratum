@@ -1,8 +1,16 @@
 # PS1 BIN/CUE Normalizer — Design Spec
 
-> **Status:** Proposed (2026-07-22). A new floor normalizer (NORMALIZERS.md row
-> `ps1-bincue`). The fourth normalizer unit. Follows the composition pattern
-> of `chd` (returns a `ByteView`; the caller re-normalizes with `iso9660`).
+> **Status:** Proposed (2026-07-22). Implementation-ready (2026-07-23): the
+> chdman structural-anchor probe confirmed the hand-authored raw layout
+> (chdman info: `TRACK:1 TYPE:MODE2_RAW SUBTYPE:NONE FRAMES:26`, completed
+> instantly on 26×2352 B). The spec's earlier `ECC (280)` was a typo —
+> corrected below to **ECC (276)**, which is the ECMA-130 / Yellow Book
+> value that makes a CD-ROM sector exactly 2352 bytes
+> (12+4+8+2048+4+276 = 2352). The implementation commits against 276.
+>
+> A new floor normalizer (NORMALIZERS.md row `ps1-bincue`). The fourth
+> normalizer unit. Follows the composition pattern of `chd` (returns a
+> `ByteView`; the caller re-normalizes with `iso9660`).
 
 ## 1. Motivation
 
@@ -50,13 +58,17 @@ Probed 2026-07-22 before this spec:
 3. **The seedtool wraps 2048 → 2352 raw sectors.** Each pycdlib block becomes
    a Mode 2 Form 1 sector: 12-byte sync (`00 FF*10 00`) + 4-byte header
    (BCD minute/second/frame + mode=2) + 8-byte XA subheader (repeated) +
-   2048-byte user data + EDC (4) + ECC (280). Proven: 26 sectors wrapped,
-   written as `.bin` + `.cue`.
+   2048-byte user data + EDC (4) + ECC (276). Proven: 26 sectors wrapped,
+   written as `.bin` + `.cue`. (ECC size corrected 2026-07-23 from 280 to
+   276 — the earlier probe value was a typo; 12+4+8+2048+4+280=2356
+   would not have made a 2352-byte CD-ROM sector.)
 4. **chdman `createcd` accepts the wrapped `.bin`/`.cue`.** A third-party tool
    reads the hand-authored raw structure and compresses it to a CHD tagged
-   `MODE2_RAW` (26 frames). → structural validity confirmed by an independent
-   tool. (chdman's `extractcd` re-emits raw sectors, not the 2048 stream, so
-   it is a *structural* anchor, not the byte-level differential.)
+   `TRACK:1 TYPE:MODE2_RAW SUBTYPE:NONE FRAMES:26` (re-proven 2026-07-23
+   with ECC=276; completes instantly on 26×2352 B). → structural validity
+   confirmed by an independent tool. (chdman's `extractcd` re-emits raw
+   sectors, not the 2048 stream, so it is a *structural* anchor, not the
+   byte-level differential.)
 
 ## 4. Approach
 
@@ -121,6 +133,16 @@ run:
 2. The seedtool wraps each 2048-byte block into a 2352-byte Mode 2 Form 1 raw
    sector (sync + BCD address from sector index + 2-second lead-in + XA
    subheader + user data + computed EDC/ECC). Writes `game.bin`.
+   Sector layout (ECMA-130 / Yellow Book Mode 2 Form 1, corrected 2026-07-23):
+   - 12-byte sync (`00 FF*10 00`)
+   - 4-byte header (BCD minute / second / frame / mode=2)
+   - 8-byte XA subheader (4 bytes, repeated): file#, channel#, submode, coding
+   - 2048-byte user data
+   - 4-byte EDC (CRC-32 over [0, 2072) of the sector — sync + header +
+     subheader + user data)
+   - 276-byte ECC (zero-filled in the seedtool; chdman only checks
+     structure, the byte-fidelity gate is pycdlib's ISO content)
+   - Total: 12 + 4 + 8 + 2048 + 4 + 276 = 2352 bytes per sector
 3. Writes `game.cue`: single `TRACK 01 MODE2/2352`, `INDEX 01 00:00:00`.
 4. Computes EDC/ECC for real (EDC is CRC-32 over bytes [0,2064); ECC is the
    CD-ROM ECC over the data columns) so the sectors are fully valid, not just
