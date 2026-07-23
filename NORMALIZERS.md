@@ -21,7 +21,7 @@ at his convenience; never committed, metadata only in outputs).
 | chd | container (decode) | T2 | **GREEN** (2026-07-18, `substratum/formats/chd.py`) | self-staged from the iso9660 unit's SuperTux PS2 ISO via `chdman createcd` → `fixtures/chd/supertux/supertux.chd` (8,492,240 bytes, sha256 8aff4f64); expected manifest derived from pre-compression iso manifest (independently authored at S1); reference bytes = iso reference (decompressed disc byte-identical) | chdman **0.288 (mame0288)** (vendored 2026-07-17 → `tools/chdman/`) + inner walk vs the pre-compression iso manifest | none left (chdman vendored) | returns ByteView; call chdman extractcd → .bin (original ISO); caller re-normalizes (DESIGN § 1 composition rule) |
 | ps1-bincue | disc image (mode2) | T2 | queued | homebrew PS1 (PSX SDK demos) or `FIXTURE REQUEST: PS1` | `7z`/`isoinfo` after mode2→2048 mapping | none | sector-format handling is the unit's substance |
 | saturn/dc-raw | disc image | T2 | queued | homebrew (DC homebrew scene is rich) | `7z` (ISO9660 inner) | none | |
-| umd/psp-iso | disc filesystem | T2 | queued | homebrew PSP | `7z` | none | |
+| cso | container (decode) | T2 | **GREEN** (2026-07-23, `substratum/formats/cso.py`) | synthetic: maxcso compresses the iso9660 synthetic disc to `game.cso` (its incompressible sha256-chain blobs force stored-raw blocks alongside compressed ones); reference = the iso9660 synthetic fixture's `reference/` (inner disc byte-identical); only `game.cso` + manifest commit | maxcso **v1.13.0** (vendored 2026-07-23 → `tools/maxcso/`; `--decompress` round-trip = structural anchor) + pycdlib **1.16.0** inner-ISO byte-differential; **stdlib zlib decode**; fidelity sample seed **1** | maxcso (vendored) | CISO **v1 only** (magic `CISO`, u32 index, 2048B blocks, top-bit stored-raw, `align`/index_shift honored, ABSOLUTE file offsets); ZSO/CSO-v2/DAX refused by magic/version; returns ByteView, caller re-normalizes with iso9660 (DESIGN §1). Resolves the old `umd/psp-iso` row: a plain UMD/PSP `.iso` is 2048B ISO9660 already walked by `iso9660` — no separate unit; the compressed CISO container is the substance |
 | wii-u8-arc | archive-as-FS | T2 | queued | homebrew | `wit`/`dolphin-tool` | shared with gc-fst | |
 | xdvdfs (Xbox) | disc filesystem | T2 | queued (deferred tier) | `FIXTURE REQUEST: XBOX` likely | `extract-xiso` (vendor + pin) | extract-xiso | open-docs but tooling-dependent |
 | wii partitions / 3ds ncch-cia | keyed platforms | T2/T3 | DEFERRED (plan Tier 3) | — | — | keys + tooling | sequenced after open platforms |
@@ -42,3 +42,10 @@ sha256s, so the repo carries the provenance, not the bytes):
   bare names, has no version flag, and needs the VC++ redistributable.
   Zip sha256 `04967055…` (TOFU, upstream publishes no sums) →
   `tools/wit/` (wit.exe + cygwin DLLs). GPL-2.0.
+- `vendor-maxcso` — maxcso **v1.13.0** (own code ISC; bundled libs
+  MIT/BSD/zlib/Apache-2.0, 7-zip deflate LGPL), the 64-bit Windows release
+  `maxcso_v1.13.0_windows.7z` (7z sha256 `51362619…`, TOFU — upstream
+  publishes no sums), flat-extracted with 7-Zip → `tools/maxcso/maxcso.exe`.
+  Run-only, never linked or committed (same posture as chdman);
+  `maxcso --version` → `maxcso v1.13.0`. Authors the `cso` fixture and is
+  its `--decompress` structural anchor.

@@ -43,6 +43,20 @@ WIT_ZIP = "wit-v3.05a-r8638-cygwin64.zip"
 WIT_URL = f"https://wit.wiimm.de/download/{WIT_ZIP}"
 WIT_ZIP_SHA256 = "049670558970f0cea2796d68e0ba1e48491474b5708bf12a95ab8a185f4e59c1"
 
+# maxcso (prep row `vendor-maxcso`, NORMALIZERS.md row `cso`): the third-party
+# CISO author + `--decompress` round-trip anchor for the cso decode-layer unit.
+# maxcso is ISC; bundled libs are permissive (zlib/BSD/MIT/Apache) with 7-zip
+# deflate under LGPL — vendored locally and only *run* (not linked, not
+# committed), same posture as chdman. Upstream publishes no SHA256SUMS, so the
+# 7z is TOFU-pinned after first fetch (like wit).
+MAXCSO_VERSION = "v1.13.0"
+MAXCSO_7Z = "maxcso_v1.13.0_windows.7z"
+MAXCSO_URL = (
+    f"https://github.com/unknownbrackets/maxcso/releases/download/"
+    f"{MAXCSO_VERSION}/{MAXCSO_7Z}"
+)
+MAXCSO_7Z_SHA256 = "51362619adbb8d219af11321b56b16d4912184203c0127a1b51566c7d151df4d"
+
 
 def sha256_of(path: Path) -> str:
     h = hashlib.sha256()
@@ -142,12 +156,42 @@ def vendor_wit() -> None:
     zpath.unlink()
 
 
+def vendor_maxcso() -> None:
+    exe = TOOLS / "maxcso" / "maxcso.exe"
+    ver = MAXCSO_VERSION.lstrip("v")
+    if exe.exists():
+        banner = run_banner([str(exe), "--version"]) or run_banner([str(exe)])
+        if ver in banner or "maxcso" in banner.lower():
+            print(f"maxcso already vendored: {banner}")
+            return
+        raise SystemExit(f"tools/maxcso/maxcso.exe exists but banner is unexpected: {banner!r}")
+
+    DL.mkdir(parents=True, exist_ok=True)
+    arc = DL / MAXCSO_7Z
+    fetch(MAXCSO_URL, arc)
+    check_pin(arc, MAXCSO_7Z_SHA256, "maxcso 7z")
+
+    (TOOLS / "maxcso").mkdir(parents=True, exist_ok=True)
+    # flat-extract every file (exe + any runtime DLLs) into tools/maxcso/
+    subprocess.run(
+        ["7z", "e", str(arc), f"-o{TOOLS / 'maxcso'}", "-y"],
+        capture_output=True, check=True,
+    )
+    if not exe.exists():
+        raise SystemExit("maxcso.exe not found in archive")
+    banner = run_banner([str(exe), "--version"]) or run_banner([str(exe)])
+    print(f"maxcso OK: {banner}\n  exe sha256 {sha256_of(exe)}")
+    arc.unlink()
+
+
 def main() -> None:
     which = set(sys.argv[1:]) or {"chdman", "wit"}
     if "chdman" in which:
         vendor_chdman()
     if "wit" in which:
         vendor_wit()
+    if "maxcso" in which:
+        vendor_maxcso()
 
 
 if __name__ == "__main__":
