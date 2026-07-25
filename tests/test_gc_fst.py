@@ -12,6 +12,7 @@ retail drop stays green; only the manifest is committed.
 """
 
 import json
+import shutil
 import struct
 from pathlib import Path
 
@@ -53,6 +54,35 @@ skip_if_no_iso = pytest.mark.skipif(
 )
 
 
+# --- memory discipline -----------------------------------------------------
+# The retail and nested ISOs are ~1.36 GiB each. The structural-red tests
+# below mutate a handful of bytes at known offsets; they must NOT materialize
+# the whole image (the earlier `bytearray(ISO.read_bytes())` pattern peaked the
+# suite at ~2.8 GB — 2x ISO, violating the lazy-slice architecture the gate
+# exists to defend). Instead: stream-copy the ISO to tmp_path (shutil.copyfile
+# chunks at 1 MiB), then patch the copy in place via seek+write. Peak memory
+# for a mutant is now the patch payload (a few bytes), not the disc.
+
+
+def _patched_copy(src: Path, tmp_path: Path, name: str, patches) -> Path:
+    """Stream-copy `src` to tmp_path/name and overwrite each (offset, bytes)
+    patch in place. Never holds more than the patch payload in memory."""
+    bad = tmp_path / name
+    shutil.copyfile(src, bad)  # streamed at shutil.COPY_BUFSIZE (1 MiB)
+    with open(bad, "r+b") as fh:
+        for offset, payload in patches:
+            fh.seek(offset)
+            fh.write(payload)
+    return bad
+
+
+def _read_u32_be(src: Path, offset: int) -> int:
+    """Read one big-endian u32 from `src` without loading the file."""
+    with open(src, "rb") as fh:
+        fh.seek(offset)
+        return struct.unpack(">I", fh.read(4))[0]
+
+
 @skip_if_no_iso
 def checks():
     return run_checks(
@@ -75,10 +105,11 @@ def test_green_full_gate():
 @skip_if_no_iso
 def test_corrupted_magic_is_structural_red(tmp_path):
     """Flipping the disc magic at 0x01c fails structurally."""
-    bad = tmp_path / "bad.iso"
-    data = bytearray(ISO.read_bytes())
-    data[0x01C] ^= 0xFF  # break GC magic
-    bad.write_bytes(bytes(data))
+    # read the one byte we're going to flip, without loading the disc
+    with open(ISO, "rb") as fh:
+        fh.seek(0x01C)
+        b = fh.read(1)
+    bad = _patched_copy(ISO, tmp_path, "bad.iso", [(0x01C, bytes([b[0] ^ 0xFF]))])
     problems = run_checks(
         normalize_gc_fst, bad, FIXTURE / "expected.manifest.json",
         REFERENCE, ISO.name, sha256_of(ISO), TOOLS,
@@ -89,10 +120,7 @@ def test_corrupted_magic_is_structural_red(tmp_path):
 @skip_if_no_iso
 def test_wii_magic_is_structural_red(tmp_path):
     """A Wii disc magic is refused (deferred keyed platform)."""
-    bad = tmp_path / "wii.iso"
-    data = bytearray(ISO.read_bytes())
-    struct.pack_into(">I", data, 0x01C, 0x5D1C9EA3)
-    bad.write_bytes(bytes(data))
+    bad = _patched_copy(ISO, tmp_path, "wii.iso", [(0x01C, struct.pack(">I", 0x5D1C9EA3))])
     with pytest.raises(ValueError, match="Wii"):
         normalize_gc_fst(bad)
 
@@ -100,10 +128,7 @@ def test_wii_magic_is_structural_red(tmp_path):
 @skip_if_no_iso
 def test_corrupted_fst_offset_is_structural_red(tmp_path):
     """A lying FST offset (pointing past disc end) fails structurally."""
-    bad = tmp_path / "bad.iso"
-    data = bytearray(ISO.read_bytes())
-    struct.pack_into(">I", data, 0x424, 0xFFFFFFFF)  # FST off past end
-    bad.write_bytes(bytes(data))
+    bad = _patched_copy(ISO, tmp_path, "bad.iso", [(0x424, struct.pack(">I", 0xFFFFFFFF))])
     with pytest.raises(ValueError, match="exceeds disc size"):
         normalize_gc_fst(bad)
 
@@ -111,11 +136,10 @@ def test_corrupted_fst_offset_is_structural_red(tmp_path):
 @skip_if_no_iso
 def test_truncated_fst_is_structural_red(tmp_path):
     """Declaring more nodes than the FST bytes allow fails structurally."""
-    bad = tmp_path / "bad.iso"
-    data = bytearray(ISO.read_bytes())
     # Inflate the root node's next/count to claim more nodes than bytes hold.
-    struct.pack_into(">I", data, struct.unpack(">I", ISO.read_bytes()[0x424:0x428])[0] + 8, 0xFFFF)
-    bad.write_bytes(bytes(data))
+    # The patched offset = (real FST offset field @0x424) + 8, read as 4 bytes.
+    fst_off = _read_u32_be(ISO, 0x424)
+    bad = _patched_copy(ISO, tmp_path, "bad.iso", [(fst_off + 8, struct.pack(">I", 0xFFFF))])
     with pytest.raises(ValueError):
         normalize_gc_fst(bad)
 
@@ -123,14 +147,15 @@ def test_truncated_fst_is_structural_red(tmp_path):
 @skip_if_no_iso
 def test_out_of_bounds_file_is_structural_red(tmp_path):
     """A file node pointing past disc end fails at check 1."""
-    bad = tmp_path / "bad.iso"
-    data = bytearray(ISO.read_bytes())
-    fst_off = struct.unpack(">I", bytes(data[0x424:0x428]))[0]
+    fst_off = _read_u32_be(ISO, 0x424)
     # Corrupt node 1's offset (the first real file, 12 bytes into the FST):
     # set its absolute offset field (node byte 4..7) to near-disc-end so the
     # declared range overruns the disc.
-    struct.pack_into(">I", data, fst_off + _NODE_SIZE + 4, len(data) - 1)
-    bad.write_bytes(bytes(data))
+    disc_end = ISO.stat().st_size - 1
+    bad = _patched_copy(
+        ISO, tmp_path, "bad.iso",
+        [(fst_off + _NODE_SIZE + 4, struct.pack(">I", disc_end))],
+    )
     problems = run_checks(
         normalize_gc_fst, bad, FIXTURE / "expected.manifest.json",
         REFERENCE, ISO.name, sha256_of(ISO), TOOLS,
@@ -228,13 +253,13 @@ def test_nested_dir_close_resume_is_structural_red(nested_iso, tmp_path):
     parser must refuse this rather than mis-walk. This targets the exact
     traversal mechanic (subtree close + resume) the flat fixture cannot test.
     """
-    bad = tmp_path / "nested_bad_close.iso"
-    data = bytearray(nested_iso.read_bytes())
-    fst_off = struct.unpack(">I", bytes(data[0x424:0x428]))[0]
+    fst_off = _read_u32_be(nested_iso, 0x424)
     # node 4 (nested dir): base = fst_off + 4*_NODE_SIZE; next field at +8.
     node_base = fst_off + 4 * _NODE_SIZE
-    struct.pack_into(">I", data, node_base + 8, 4)  # next = self -> never closes
-    bad.write_bytes(bytes(data))
+    bad = _patched_copy(
+        nested_iso, tmp_path, "nested_bad_close.iso",
+        [(node_base + 8, struct.pack(">I", 4))],  # next = self -> never closes
+    )
     problems = run_checks(
         normalize_gc_fst, bad, NESTED / "expected.manifest.json",
         NESTED_REFERENCE, nested_iso.name, sha256_of(nested_iso), NESTED_TOOLS,
@@ -249,14 +274,14 @@ def test_nested_parent_mismatch_is_structural_red(nested_iso, tmp_path):
     Flips the nested/ dir's parent field to a bogus value; the parser refuses
     (parent != enclosing dir).
     """
-    bad = tmp_path / "nested_bad_parent.iso"
-    data = bytearray(nested_iso.read_bytes())
-    fst_off = struct.unpack(">I", bytes(data[0x424:0x428]))[0]
+    fst_off = _read_u32_be(nested_iso, 0x424)
     # node 4 (nested dir): parent field at node_base+4..+7. Set to a bogus
     # index (not 2 = data, its real parent).
     node_base = fst_off + 4 * _NODE_SIZE
-    struct.pack_into(">I", data, node_base + 4, 99)
-    bad.write_bytes(bytes(data))
+    bad = _patched_copy(
+        nested_iso, tmp_path, "nested_bad_parent.iso",
+        [(node_base + 4, struct.pack(">I", 99))],
+    )
     problems = run_checks(
         normalize_gc_fst, bad, NESTED / "expected.manifest.json",
         NESTED_REFERENCE, nested_iso.name, sha256_of(nested_iso), NESTED_TOOLS,
