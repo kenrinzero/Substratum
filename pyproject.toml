@@ -11,7 +11,13 @@ requires-python = ">=3.13"
 license = { text = "MIT" }
 
 [dependency-groups]
-dev = ["pytest>=8", "jsonschema>=4.18", "pycdlib>=1.14"]
+dev = [
+    "pytest>=8",
+    "jsonschema>=4.18",
+    "pycdlib>=1.14",
+    # memory-discipline gate: peak-RSS sampling (Windows-truthful; see tests/conftest.py)
+    "psutil>=5.9",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
