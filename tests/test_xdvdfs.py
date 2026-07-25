@@ -183,6 +183,33 @@ def test_bad_filename_refused(tmp_path):
         normalize_xdvdfs(bad)
 
 
+def test_nested_directory_cycle_refused(tmp_path):
+    """A nested directory whose table points back at an ancestor's table is a
+    cross-table cycle. Must raise a clean structural ValueError, not recurse
+    until RecursionError (the gap surfaced in the 2026-07-25 verification).
+    """
+    bad = tmp_path / "bad-cycle.xiso"
+    data = bytearray(IMAGE.read_bytes())
+    # The DATA entry lives in the root table (sector 0x22). Repoint its
+    # start_sector (u32 LE at entry+4) to the root table sector, so DATA's
+    # nested table IS the root table -> infinite ancestor cycle.
+    table_offset = 0x22 * 0x800
+    table = data[table_offset : table_offset + 0x800]
+    for entry_offset in range(0, len(table) - 14, 0x10):
+        if entry_offset + 0x0E > len(table):
+            break
+        name_len = table[entry_offset + 0x0D]
+        name = table[entry_offset + 0x0E : entry_offset + 0x0E + name_len].decode("ascii", "ignore")
+        if name == "DATA":
+            struct.pack_into("<I", data, table_offset + entry_offset + 4, 0x22)
+            break
+    else:
+        pytest.fail("DATA entry not found")
+    bad.write_bytes(bytes(data))
+    with pytest.raises(ValueError, match="cycle"):
+        normalize_xdvdfs(bad)
+
+
 # --- red-team mutants ---------------------------------------------------
 
 
