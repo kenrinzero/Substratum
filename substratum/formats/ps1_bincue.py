@@ -41,6 +41,7 @@ Scope — deliberately unit-bounded (mirrors `iso9660` discipline):
   video/ADPCM content belongs to a downstream asset decoder.
 - Mode 1, audio, multi-track, CD-TEXT, and subchannel data are refused.
 - Single data track, MODE2/2352, INDEX 01 00:00:00 in the .cue.
+- Unmatched CUE syntax and duplicate INDEX declarations are refused.
 - A .bin without a .cue sibling is refused (sniff-only on raw bytes).
 - Raw sector headers must contain valid BCD minute/second/frame values
   and advance contiguously from their first (arbitrary) address.
@@ -200,6 +201,7 @@ def _parse_cue(cue_path: Path) -> tuple[str, int]:
     saw_track = False
     saw_index01 = False
     index01_start: int | None = None
+    seen_indexes: set[int] = set()
 
     for raw in text.splitlines():
         line = raw.split("//", 1)[0].strip()  # CUE comments are //
@@ -230,20 +232,24 @@ def _parse_cue(cue_path: Path) -> tuple[str, int]:
                 raise _CueError("cue: INDEX before TRACK")
             idx = int(m.group(1))
             start = _parse_msf(int(m.group(2)), int(m.group(3)), int(m.group(4)))
+            if idx not in (0, 1):
+                raise _CueError(f"cue: INDEX {idx} out of scope (only INDEX 00/01)")
+            if idx in seen_indexes:
+                raise _CueError(f"cue: duplicate INDEX {idx:02d}")
+            seen_indexes.add(idx)
             if idx == 1:
                 saw_index01 = True
                 index01_start = start
-            elif idx == 0:
+            else:
                 # INDEX 00 = pregap; must be 00:00:00 for a fresh data track
                 if start != 0:
                     raise _CueError(f"cue: INDEX 00 pregap at {start} (only 00:00:00 supported)")
-            else:
-                raise _CueError(f"cue: INDEX {idx} out of scope (only INDEX 00/01)")
             continue
         # Unknown / unsupported line
         if line.startswith(("PREGAP", "POSTGAP", "TITLE", "PERFORMER", "REM",
                             "FLAGS", "CATALOG", "CDTEXTFILE", "ISRC")):
             raise _CueError(f"cue: {line.split()[0]} directive out of scope")
+        raise _CueError(f"cue: unsupported or malformed line {line!r}")
 
     if bin_name is None:
         raise _CueError("cue: no FILE line")

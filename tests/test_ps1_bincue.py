@@ -505,6 +505,34 @@ def test_audio_track_refused(tmp_path):
     assert_structural_failure(problems, "track mode 'AUDIO' out of scope")
 
 
+def test_unknown_cue_line_refused(tmp_path):
+    bad_bin = _stage_pair(tmp_path, BIN.read_bytes())
+    bad_bin.with_suffix(".cue").write_text(
+        CUE.read_text(encoding="utf-8") + "THIS IS NOT A CUE DIRECTIVE\n",
+        encoding="utf-8",
+    )
+
+    assert_structural_failure(
+        _checks(bad_bin),
+        "unsupported or malformed line 'THIS IS NOT A CUE DIRECTIVE'",
+    )
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_duplicate_cue_index_refused(tmp_path, index):
+    bad_bin = _stage_pair(tmp_path, BIN.read_bytes())
+    index_line = f"    INDEX {index:02d} 00:00:00\n"
+    bad_bin.with_suffix(".cue").write_text(
+        f'FILE "{bad_bin.name}" BINARY\n'
+        "  TRACK 01 MODE2/2352\n"
+        f"{index_line}{index_line}"
+        "    INDEX 01 00:00:00\n",
+        encoding="utf-8",
+    )
+
+    assert_structural_failure(_checks(bad_bin), f"duplicate INDEX {index:02d}")
+
+
 def test_truncated_bin_refused(tmp_path):
     """A .bin whose size is not a multiple of 2352 is refused."""
     data = BIN.read_bytes()[: -100]  # chop 100 bytes (not a sector multiple)
