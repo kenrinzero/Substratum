@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from substratum.contract import ByteView, FileSource, FileTree, sha256_of
 from substratum.formats.ps1_bincue import normalize_ps1_bincue, sniff
@@ -60,6 +61,15 @@ def _checks(fixture=BIN):
         sha256_of(ISO),  # decoded inner stream == synthetic.iso sha256
         TOOLS,
     )
+
+
+def _stage_pair(tmp_path: Path, data: bytes) -> Path:
+    """Stage a matching game.bin/game.cue pair so sector tests reach the parser."""
+    bad_bin = tmp_path / "game.bin"
+    bad_cue = tmp_path / "game.cue"
+    bad_bin.write_bytes(data)
+    bad_cue.write_text(CUE.read_text(), encoding="utf-8")
+    return bad_bin
 
 
 # --- green + basic shape -------------------------------------------------
@@ -143,28 +153,45 @@ def test_expected_manifest_validates_against_schema():
 
 def test_corrupted_sync_is_structural_red(tmp_path):
     """Flipping a sync byte in sector 0 fires a structural red at normalize."""
-    bad_bin = tmp_path / "bad.bin"
-    bad_cue = tmp_path / "bad.cue"
     data = bytearray(BIN.read_bytes())
     data[0] ^= 0xFF  # first sync byte
-    bad_bin.write_bytes(bytes(data))
-    bad_cue.write_text(CUE.read_text())  # same .cue
+    bad_bin = _stage_pair(tmp_path, bytes(data))
     problems = _checks(bad_bin)
     assert problems and any(p.startswith("structural:") for p in problems)
 
 
 def test_mode1_refused(tmp_path):
     """A sector with mode byte = 1 (Mode 1) is refused structurally."""
-    bad_bin = tmp_path / "bad.bin"
-    bad_cue = tmp_path / "bad.cue"
     data = bytearray(BIN.read_bytes())
     # header is at offset 12; mode byte is the 4th byte of the header
     # (header[3]) -> absolute offset 15
     data[15] = 0x01  # mode 1 instead of 2
-    bad_bin.write_bytes(bytes(data))
-    bad_cue.write_text(CUE.read_text())
+    bad_bin = _stage_pair(tmp_path, bytes(data))
     problems = _checks(bad_bin)
     assert problems and any(p.startswith("structural:") for p in problems)
+
+
+def test_mode2_form2_refused_structurally(tmp_path):
+    """XA submode bit 0x20 marks Form 2 and must never reach the user-data view."""
+    data = bytearray(BIN.read_bytes())
+    data[18] |= 0x20
+    data[22] |= 0x20
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+
+    with pytest.raises(ValueError, match="Form 2"):
+        normalize_ps1_bincue(bad_bin)
+    assert any("Form 2" in problem for problem in _checks(bad_bin))
+
+
+def test_mismatched_xa_subheader_copies_refused_structurally(tmp_path):
+    """The repeated four-byte XA subheaders must agree before Form is trusted."""
+    data = bytearray(BIN.read_bytes())
+    data[22] ^= 0x01
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+
+    with pytest.raises(ValueError, match="subheader copies differ"):
+        normalize_ps1_bincue(bad_bin)
+    assert any("subheader copies differ" in problem for problem in _checks(bad_bin))
 
 
 def test_audio_track_refused(tmp_path):
@@ -184,11 +211,8 @@ def test_audio_track_refused(tmp_path):
 
 def test_truncated_bin_refused(tmp_path):
     """A .bin whose size is not a multiple of 2352 is refused."""
-    bad_bin = tmp_path / "bad.bin"
-    bad_cue = tmp_path / "bad.cue"
     data = BIN.read_bytes()[: -100]  # chop 100 bytes (not a sector multiple)
-    bad_bin.write_bytes(data)
-    bad_cue.write_text(CUE.read_text())
+    bad_bin = _stage_pair(tmp_path, data)
     problems = _checks(bad_bin)
     assert problems and any(p.startswith("structural:") for p in problems)
 

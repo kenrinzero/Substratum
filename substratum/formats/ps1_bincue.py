@@ -44,6 +44,7 @@ SECTOR = 2352
 SYNC_LEN = 12
 HEADER_LEN = 4
 XA_SUB_LEN = 8
+XA_COPY_LEN = 4
 USER_LEN = 2048
 EDC_LEN = 4
 ECC_LEN = 276
@@ -51,6 +52,7 @@ assert SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN + EDC_LEN + ECC_LEN == SECT
 
 SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
 MODE2 = 0x02
+FORM2_BIT = 0x20
 
 # CUE regexes — strict single-track MODE2/2352, INDEX 01 00:00:00.
 _RE_FILE = re.compile(r'^\s*FILE\s+"([^"]+)"\s+(BINARY|BINARY/WAVE|WAVE|AIFF|MOTOROLA)\s*$')
@@ -60,6 +62,38 @@ _RE_INDEX = re.compile(r'^\s*INDEX\s+(\d+)\s+(\d+):(\d+):(\d+)\s*$')
 
 class _CueError(ValueError):
     """Refusal from a malformed .cue. Becomes a structural red at check 1."""
+
+
+def _validate_mode2_form1_sector(raw: bytes, abs_sec: int) -> None:
+    """Validate the sector envelope and the repeated XA Form-1 subheader."""
+    if len(raw) != SECTOR:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} short read ({len(raw)} < {SECTOR})"
+        )
+    if raw[:SYNC_LEN] != SYNC:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} bad sync pattern "
+            f"(got {raw[:SYNC_LEN].hex()})"
+        )
+    if raw[SYNC_LEN + 3] != MODE2:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} mode {raw[SYNC_LEN + 3]} != 2 "
+            "(Mode 1 / audio are out of scope)"
+        )
+
+    xa_start = SYNC_LEN + HEADER_LEN
+    first = raw[xa_start : xa_start + XA_COPY_LEN]
+    repeated = raw[xa_start + XA_COPY_LEN : xa_start + XA_SUB_LEN]
+    if first != repeated:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} XA subheader copies differ "
+            f"({first.hex()} != {repeated.hex()})"
+        )
+    if first[2] & FORM2_BIT:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} is Mode 2 Form 2 "
+            "(2324-byte Form 2 sectors are out of scope)"
+        )
 
 
 def _parse_msf(m: int, s: int, f: int) -> int:
@@ -165,19 +199,7 @@ class _Mode2RemapSource:
             return self._cache_user
         abs_sec = self._start + i
         raw = self._raw.read_at(abs_sec * SECTOR, SECTOR)
-        if len(raw) != SECTOR:
-            raise ValueError(
-                f"ps1-bincue: sector {abs_sec} short read ({len(raw)} < {SECTOR})"
-            )
-        if raw[:SYNC_LEN] != SYNC:
-            raise ValueError(
-                f"ps1-bincue: sector {abs_sec} bad sync pattern (got {raw[:SYNC_LEN].hex()})"
-            )
-        if raw[SYNC_LEN + 3] != MODE2:
-            raise ValueError(
-                f"ps1-bincue: sector {abs_sec} mode {raw[SYNC_LEN + 3]} != 2 "
-                "(Mode 1 / audio are out of scope)"
-            )
+        _validate_mode2_form1_sector(raw, abs_sec)
         user = bytes(raw[SYNC_LEN + HEADER_LEN + XA_SUB_LEN : SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN])
         self._cache_i = i
         self._cache_user = user
@@ -277,15 +299,6 @@ def normalize_ps1_bincue(source) -> ByteView:
     for i in range(n_data):
         abs_sec = start_sector + i
         raw = src.read_at(abs_sec * SECTOR, SECTOR)
-        if raw[:SYNC_LEN] != SYNC:
-            raise ValueError(
-                f"ps1-bincue: sector {abs_sec} bad sync pattern "
-                f"(got {raw[:SYNC_LEN].hex()})"
-            )
-        if raw[SYNC_LEN + 3] != MODE2:
-            raise ValueError(
-                f"ps1-bincue: sector {abs_sec} mode {raw[SYNC_LEN + 3]} != 2 "
-                "(Mode 1 / audio are out of scope)"
-            )
+        _validate_mode2_form1_sector(raw, abs_sec)
 
     return ByteView(source=_Mode2RemapSource(src, start_sector, n_data), format="ps1-bincue")
