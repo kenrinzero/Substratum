@@ -27,7 +27,9 @@ traversal-capable path components; ISO9660 also refuses directory records
 that overrun an extent or logical block.
 `ps1-bincue` additionally preserves general
 Mode-2 Form-2 payloads through its public sector API while retaining the
-fixed 2048-byte cooked view needed for ISO9660 LBA composition.
+fixed 2048-byte cooked view needed for ISO9660 LBA composition; its
+deliberately narrow CUE grammar fails closed on unmatched syntax and
+duplicate index declarations.
 `saturn-dc-raw` is anchored by the GPL-3.0 Save Game Copier 3.7.1
 release: 412 complete Mode-1 sectors independently reconstructed and
 verified by pinned ECM/UNECM, then decoded byte-exactly to the upstream
