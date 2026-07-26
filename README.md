@@ -25,6 +25,10 @@ byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
 per-test peak-RSS guard. `ps1-bincue` additionally preserves general
 Mode-2 Form-2 payloads through its public sector API while retaining the
 fixed 2048-byte cooked view needed for ISO9660 LBA composition.
+`saturn-dc-raw` is anchored by the GPL-3.0 Save Game Copier 3.7.1
+release: 412 complete Mode-1 sectors independently reconstructed and
+verified by pinned ECM/UNECM, then decoded byte-exactly to the upstream
+ISO.
 
 The two keyed-platform families (`wii partitions` and `3ds ncch-cia`)
 remain deliberately deferred. See `NORMALIZERS.md` for exact format
