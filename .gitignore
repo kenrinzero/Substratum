@@ -26,4 +26,7 @@ fixtures/cso/ape-escape/reference/
 # PS2 retail ISO anchor: independent 7-Zip reference extraction stays local;
 # only the metadata manifest and provenance are committed.
 fixtures/iso9660/gallop-racer-2001/reference/
+# 3DS retail CCI anchor: independently extracted opaque partition payloads
+# stay local; only the metadata manifest and provenance are committed.
+fixtures/3ds_cci/cubic-ninja/reference/
 tools/

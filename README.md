@@ -16,10 +16,10 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.8 (2026-07-26): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and eight real
+Version 0.0.9 (2026-07-26): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and nine real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
-`saturn-dc-raw`, `cso`, `wii-u8-arc`, and `xdvdfs`. Every unit runs
+`saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, and `3ds-cci`. Every unit runs
 through the same four-check structural, manifest, round-trip, and
 byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
 per-test peak-RSS guard. `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
@@ -42,9 +42,14 @@ For `saturn-dc-raw`, full EDC/P-Q ECC stays with the staging oracle after
 its stdlib runtime cost was benchmarked at roughly 162 seconds for a
 full-sized disc.
 
-Qualified local retail anchors have split the former combined keyed-platform
-row into honest one-layer units. `3ds-cci`, decrypted-only `3ds-ncch`, and
-the unkeyed outer `wii-disc` container are READY. Wii partition AES-CBC
+`3ds-cci` exposes only the outer NCSD partition table: Cubic Ninja's CXI
+and update CFA remain lazy opaque slices into the original CCI, with complete
+payload fidelity independently proved by pinned ctrtool and 3dstool. It
+refuses media-size drift, malformed/overlapping/out-of-bounds partition
+tables, duplicate partition IDs, NCSD/NCCH ID disagreement, and bad magics.
+Qualified local retail anchors have split the remaining keyed-platform work
+into honest one-layer units. Decrypted-only `3ds-ncch` and the unkeyed outer
+`wii-disc` container are READY. Wii partition AES-CBC
 decoding is prepared but waits on a caller-supplied local common-key file;
 the decrypted Wii FST follows that ByteView. Encrypted/seeded NCCH and CIA
 remain deferred. See `NORMALIZERS.md` for exact format bounds, fixture

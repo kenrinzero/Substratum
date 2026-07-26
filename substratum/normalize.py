@@ -18,6 +18,10 @@ from substratum.formats.saturn_dc_raw import (
     normalize_saturn_dc_raw,
     sniff as sniff_saturn_dc_raw,
 )
+from substratum.formats.three_ds_cci import (
+    normalize_3ds_cci,
+    sniff as sniff_3ds_cci,
+)
 from substratum.formats.wii_u8_arc import (
     normalize_wii_u8_arc,
     sniff as sniff_wii_u8_arc,
@@ -39,6 +43,7 @@ class _Format:
 # Specific raw-sector formats precede ISO9660. Saturn's mode-byte check must
 # precede PS1's path-bound BIN/CUE check because both use the CD sync pattern.
 _FORMATS = (
+    _Format("3ds-cci", sniff_3ds_cci, normalize_3ds_cci),
     _Format("chd", sniff_chd, normalize_chd),
     _Format("cso", sniff_cso, normalize_cso),
     _Format("gc-fst", sniff_gc_fst, normalize_gc_fst),
@@ -74,4 +79,3 @@ def normalize(source, *, format: str | None = None) -> NormalizeResult:
             return entry.normalize(source)
 
     raise ValueError("unrecognized format; pass format= to select a normalizer")
-
