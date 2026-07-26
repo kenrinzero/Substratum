@@ -56,10 +56,12 @@ uv run pytest
 ```
 
 The runtime package itself is stdlib-only. CHD decoding additionally
-requires the pinned repo-local `tools/chdman/chdman.exe`, restored with
-`uv run python seedtools/vendor_tools.py`; other vendored tools are
-fixture-authoring or differential anchors. A wheel can be built locally
-with `uv build`, but publishing/promotion is intentionally deferred.
+requires `chdman`: set `SUBSTRATUM_CHDMAN` to its executable, install it
+on `PATH`, or use the pinned repo-local `tools/chdman/chdman.exe`
+restored with `uv run python seedtools/vendor_tools.py chdman`. That is
+the resolution order. Other vendored tools are fixture-authoring or
+differential anchors. A wheel can be built locally with `uv build`, but
+publishing/promotion is intentionally deferred.
 
 ## How a unit works
 

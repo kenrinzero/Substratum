@@ -3,17 +3,21 @@
 Returns exactly ONE layer — a ByteView of the decompressed disc.
 Never recurses into inner filesystems (caller composes, DESIGN.md §1).
 
-Decompression delegates to vendored chdman 0.288 (mame0288) via
-`extractcd`; the output .bin is the original 2048-byte-sector ISO.
+Decompression delegates to chdman via `extractcd`; the output .bin is
+the original 2048-byte-sector ISO. Source checkouts carry chdman 0.288
+(mame0288), while installed packages may select an executable explicitly
+or discover one on PATH.
 
 Runtime is stdlib-only per DESIGN.md § 4.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
+import weakref
 from pathlib import Path
 
 from substratum.contract import ByteSource, ByteView, FileSource
@@ -25,14 +29,16 @@ class _TempFileSource:
     """ByteSource over a temp file that owns its parent directory.
 
     The extracted .bin lives in a mkdtemp directory.  Normal FileSource
-    has no lifecycle hook, so the directory would leak.  This wrapper
-    delegates reads to a FileSource and removes the temp tree from
-    __del__, so the caller needn't manage cleanup explicitly.
+    has no lifecycle hook, so this wrapper supplies explicit idempotent
+    cleanup and a finalizer fallback.
     """
 
     def __init__(self, path: Path, tmp_dir: Path) -> None:
         self._inner = FileSource(path)
         self._tmp_dir = tmp_dir
+        self._finalizer = weakref.finalize(
+            self, shutil.rmtree, tmp_dir, ignore_errors=True
+        )
 
     def read_at(self, offset: int, size: int) -> bytes:
         return self._inner.read_at(offset, size)
@@ -40,22 +46,53 @@ class _TempFileSource:
     def size(self) -> int:
         return self._inner.size()
 
-    def __del__(self) -> None:
-        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+    def close(self) -> None:
+        """Remove the owned extraction tree; safe to call more than once."""
+        self._finalizer()
+
+    def __enter__(self) -> _TempFileSource:
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()
+
 
 _CHDMAN_REL = Path("tools") / "chdman" / "chdman.exe"
+_CHDMAN_ENV = "SUBSTRATUM_CHDMAN"
 _CHDMAN_TIMEOUT_SECONDS = 300
 
 
-def _chdman_exe() -> Path:
-    """Locate vendored chdman relative to the repo root."""
+def _repo_chdman_candidate() -> Path:
     root = Path(__file__).resolve().parent.parent.parent
-    exe = root / _CHDMAN_REL
-    if not exe.exists():
+    return root / _CHDMAN_REL
+
+
+def _chdman_exe() -> Path:
+    """Resolve chdman for wheels and source checkouts in explicit order."""
+    override = os.environ.get(_CHDMAN_ENV)
+    if override is not None:
+        if not override.strip():
+            raise FileNotFoundError(f"{_CHDMAN_ENV} is set but empty")
+        exe = Path(override).expanduser()
+        if exe.is_file():
+            return exe
         raise FileNotFoundError(
-            f"chdman not found at {exe}; re-vendor via seedtools/vendor_tools.py"
+            f"{_CHDMAN_ENV} points to a missing file: {exe}"
         )
-    return exe
+
+    on_path = shutil.which("chdman")
+    if on_path is not None:
+        return Path(on_path)
+
+    repo_exe = _repo_chdman_candidate()
+    if repo_exe.is_file():
+        return repo_exe
+
+    raise FileNotFoundError(
+        "chdman not found; set SUBSTRATUM_CHDMAN to chdman.exe, "
+        "install chdman on PATH, or re-vendor a source checkout with "
+        "seedtools/vendor_tools.py chdman"
+    )
 
 
 def sniff(source: ByteSource) -> bool:

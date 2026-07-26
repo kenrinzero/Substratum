@@ -10,12 +10,16 @@ parser under test).  Reference bytes are the iso reference bytes
 (decompressed disc is byte-identical).  Tool pins include chdman 0.288.
 """
 
+import gc
 import json
+import weakref
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from substratum.contract import FileSource, FileTree, ByteView, sha256_of
+from substratum.formats import chd as chd_module
 from substratum.formats.chd import normalize_chd, sniff
 from substratum.formats.iso9660 import normalize_iso9660
 from substratum.verify import run_checks
@@ -84,20 +88,97 @@ def test_normalize_chd_returns_bytemeasure():
     view = normalize_chd(FIXTURE / "supertux.chd")
     assert isinstance(view, ByteView)
     assert view.format == "chd"
-    # size matches the decompressed ISO
-    assert view.source.size() == 21823488
+    tmp_dir = view.source._tmp_dir
+    with view.source as source:
+        # size matches the decompressed ISO
+        assert source.size() == 21823488
+        assert tmp_dir.is_dir()
+    assert not tmp_dir.exists()
+    # Explicit cleanup remains safe after context-manager cleanup.
+    view.source.close()
 
 
 def test_decompressed_data_matches_original():
     """The decompressed CHD data is byte-identical to the original ISO."""
     view = normalize_chd(FIXTURE / "supertux.chd")
-    iso = ROOT / "fixtures" / "iso9660" / "supertux" / "supertux.iso"
-    # spot-check: read the PVD area
-    pvd_chd = view.source.read_at(16 * 2048, 2048)
-    with iso.open("rb") as fh:
-        fh.seek(16 * 2048)
-        pvd_iso = fh.read(2048)
-    assert pvd_chd == pvd_iso
+    try:
+        iso = ROOT / "fixtures" / "iso9660" / "supertux" / "supertux.iso"
+        # spot-check: read the PVD area
+        pvd_chd = view.source.read_at(16 * 2048, 2048)
+        with iso.open("rb") as fh:
+            fh.seek(16 * 2048)
+            pvd_iso = fh.read(2048)
+        assert pvd_chd == pvd_iso
+    finally:
+        view.source.close()
+
+
+def test_chdman_environment_override_is_authoritative(tmp_path, monkeypatch):
+    override = tmp_path / "custom-chdman.exe"
+    override.write_bytes(b"test executable")
+    monkeypatch.setenv("SUBSTRATUM_CHDMAN", str(override))
+    monkeypatch.setattr(
+        chd_module.shutil,
+        "which",
+        lambda name: pytest.fail("PATH must not be consulted after an override"),
+    )
+
+    assert chd_module._chdman_exe() == override
+
+
+def test_invalid_chdman_environment_override_fails_without_fallback(
+    tmp_path, monkeypatch
+):
+    missing = tmp_path / "missing-chdman.exe"
+    monkeypatch.setenv("SUBSTRATUM_CHDMAN", str(missing))
+    monkeypatch.setattr(
+        chd_module.shutil,
+        "which",
+        lambda name: pytest.fail("invalid explicit override must not fall back"),
+    )
+
+    with pytest.raises(FileNotFoundError, match="SUBSTRATUM_CHDMAN points"):
+        chd_module._chdman_exe()
+
+
+def test_chdman_path_precedes_source_checkout(tmp_path, monkeypatch):
+    on_path = tmp_path / "chdman.exe"
+    on_path.write_bytes(b"test executable")
+    monkeypatch.delenv("SUBSTRATUM_CHDMAN", raising=False)
+    monkeypatch.setattr(chd_module.shutil, "which", lambda name: str(on_path))
+    monkeypatch.setattr(
+        chd_module,
+        "_repo_chdman_candidate",
+        lambda: pytest.fail("repo fallback must not be consulted after PATH"),
+    )
+
+    assert chd_module._chdman_exe() == on_path
+
+
+def test_missing_chdman_error_lists_install_options(tmp_path, monkeypatch):
+    monkeypatch.delenv("SUBSTRATUM_CHDMAN", raising=False)
+    monkeypatch.setattr(chd_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(
+        chd_module, "_repo_chdman_candidate", lambda: tmp_path / "missing.exe"
+    )
+
+    with pytest.raises(FileNotFoundError, match="install chdman on PATH"):
+        chd_module._chdman_exe()
+
+
+def test_temp_source_finalizer_removes_owned_tree(tmp_path):
+    owned = tmp_path / "owned"
+    owned.mkdir()
+    extracted = owned / "extracted.bin"
+    extracted.write_bytes(b"decoded bytes")
+    source = chd_module._TempFileSource(extracted, owned)
+    source_ref = weakref.ref(source)
+
+    del source
+    gc.collect()
+
+    assert source_ref() is None
+    assert not owned.exists()
 
 
 def test_corrupted_chd_is_structural_red(tmp_path):

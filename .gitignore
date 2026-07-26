@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 dist/
+.zcode/
 # operator-dropped retail fixtures + non-redistributable homebrew:
 # never committed (DESIGN.md section 5)
 fixtures/_local/*
