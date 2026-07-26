@@ -24,6 +24,7 @@ from substratum.contract import ByteView, FileSource, FileTree, sha256_of
 from substratum.formats.iso9660 import normalize_iso9660
 from substratum.formats.saturn_dc_raw import normalize_saturn_dc_raw, sniff
 from substratum.verify import run_checks
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "saturn_dc_raw" / "synthetic"
@@ -151,7 +152,7 @@ def test_corrupted_sync_is_structural_red(tmp_path):
     data[0] ^= 0xFF  # first sync byte
     bad_bin.write_bytes(bytes(data))
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "bad sync pattern")
 
 
 def test_mode2_refused(tmp_path):
@@ -162,7 +163,7 @@ def test_mode2_refused(tmp_path):
     data[15] = 0x02  # mode 2 instead of 1
     bad_bin.write_bytes(bytes(data))
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "mode 2 != 1")
 
 
 def test_truncated_refused(tmp_path):
@@ -171,7 +172,7 @@ def test_truncated_refused(tmp_path):
     data = BIN.read_bytes()[: -100]  # chop 100 bytes (not a sector multiple)
     bad_bin.write_bytes(data)
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "not a multiple of 2352")
 
 
 def test_not_a_raw_disc_refused(tmp_path):
@@ -181,7 +182,7 @@ def test_not_a_raw_disc_refused(tmp_path):
     bad = tmp_path / "not_raw.iso"
     bad.write_bytes(ISO.read_bytes())
     problems = _checks(bad)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "not a multiple of 2352")
 
 
 # --- red-team: wrong-offset slicer (the load-bearing mutant) -------------
@@ -201,8 +202,6 @@ def test_wrong_offset_slicer_dies_structurally():
     that returns the wrong offset, and we assert the iso9660 walker
     fails structurally (PVD signature mismatch).
     """
-    from substratum.formats.iso9660 import normalize_iso9660
-
     class _WrongOffsetSource:
         """Mutant: extract bytes [12:12+2048] from each sector (4 header
         bytes as the first 4 bytes, then 2044 user bytes starting from

@@ -17,6 +17,7 @@ import pytest
 from substratum.contract import FileEntry, FileSource, FileTree, sha256_of
 from substratum.formats.wii_u8_arc import normalize_wii_u8_arc, sniff
 from substratum.verify import run_checks
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "wii_u8_arc" / "synthetic"
@@ -87,7 +88,7 @@ def test_corrupted_tag_is_structural_red(tmp_path):
     data[0] ^= 0xFF
     bad.write_bytes(bytes(data))
     problems = _checks(normalize_wii_u8_arc, fixture=bad)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "not a Wii U8 archive")
 
 def test_yaz0_refused(tmp_path):
     bad = tmp_path / "bad.arc"
@@ -115,14 +116,14 @@ def test_file_out_of_bounds_refused(tmp_path):
     struct.pack_into(">I", data, 0x38 + 4, len(data) + 10)
     bad.write_bytes(bytes(data))
     problems = _checks(normalize_wii_u8_arc, fixture=bad)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "exceeds archive size")
 
 def test_truncated_refused(tmp_path):
     bad = tmp_path / "bad.arc"
     # Chop off some bytes from the end of archive
     data = ARC.read_bytes()[:-100]
     bad.write_bytes(data)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="exceeds archive size"):
         normalize_wii_u8_arc(bad)
 
 def test_cycle_refused(tmp_path):

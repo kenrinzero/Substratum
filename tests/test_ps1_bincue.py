@@ -28,6 +28,7 @@ from substratum.formats.ps1_bincue import (
 )
 from substratum.formats.iso9660 import normalize_iso9660
 from substratum.verify import run_checks
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "ps1_bincue" / "synthetic"
@@ -232,7 +233,7 @@ def test_corrupted_sync_is_structural_red(tmp_path):
     data[0] ^= 0xFF  # first sync byte
     bad_bin = _stage_pair(tmp_path, bytes(data))
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "bad sync pattern")
 
 
 def test_mode1_refused(tmp_path):
@@ -243,7 +244,7 @@ def test_mode1_refused(tmp_path):
     data[15] = 0x01  # mode 1 instead of 2
     bad_bin = _stage_pair(tmp_path, bytes(data))
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "mode 1 != 2")
 
 
 def test_zero_filled_form2_system_area_is_accepted(tmp_path):
@@ -351,7 +352,7 @@ def test_audio_track_refused(tmp_path):
         f'  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n'
     )
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "track mode 'AUDIO' out of scope")
 
 
 def test_truncated_bin_refused(tmp_path):
@@ -359,7 +360,7 @@ def test_truncated_bin_refused(tmp_path):
     data = BIN.read_bytes()[: -100]  # chop 100 bytes (not a sector multiple)
     bad_bin = _stage_pair(tmp_path, data)
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "not a multiple of 2352")
 
 
 def test_missing_cue_refused(tmp_path):
@@ -368,7 +369,7 @@ def test_missing_cue_refused(tmp_path):
     bad_bin = tmp_path / "no_cue.bin"
     bad_bin.write_bytes(BIN.read_bytes())
     problems = _checks(bad_bin)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "no .cue sibling")
 
 
 # --- red-team: wrong-offset slicer (the load-bearing mutant) -------------
@@ -388,9 +389,6 @@ def test_wrong_offset_slicer_dies_structurally():
     that returns the wrong offset, and we assert the iso9660 walker
     fails structurally (PVD signature mismatch).
     """
-    from substratum.contract import ByteView, FileTree
-    from substratum.formats.iso9660 import normalize_iso9660
-
     class _WrongOffsetSource:
         """Mutant: extract bytes [16:16+2048] from each sector (the XA
         subheader as the first 8 bytes, then 2040 bytes of user data

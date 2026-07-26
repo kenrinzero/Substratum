@@ -15,6 +15,7 @@ import pytest
 from substratum.contract import FileSource, sha256_of
 from substratum.formats.iso9660 import normalize_iso9660, sniff
 from substratum.verify import run_checks
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 SYN = ROOT / "fixtures" / "iso9660" / "synthetic"
@@ -78,14 +79,14 @@ def test_corrupted_pvd_is_structural_red(tmp_path):
     data[16 * 2048 + 1] ^= 0xFF  # break "CD001" in the PVD
     bad.write_bytes(bytes(data))
     problems = checks(fixture=bad)
-    assert problems and problems[0].startswith("structural:")
+    assert_structural_failure(problems, "lacks CD001 standard identifier")
 
 
 def test_truncated_image_is_structural_red(tmp_path):
     bad = tmp_path / "synthetic.iso"
     bad.write_bytes((SYN / "synthetic.iso").read_bytes()[: 20 * 2048])
     problems = checks(fixture=bad)
-    assert problems and problems[0].startswith("structural:")
+    assert_structural_failure(problems, "out of bounds")
 
 
 def test_sniff():

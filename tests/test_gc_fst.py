@@ -11,9 +11,11 @@ drop). The suite SKIPS cleanly when it is absent, so a fresh clone with no
 retail drop stays green; only the manifest is committed.
 """
 
+import builtins
 import json
 import shutil
 import struct
+import subprocess
 from pathlib import Path
 
 import jsonschema
@@ -22,6 +24,8 @@ import pytest
 from substratum.contract import FileSource, sha256_of
 from substratum.formats.gc_fst import normalize_gc_fst, sniff
 from substratum.verify import run_checks
+from seedtools import make_gc_fst_nested_fixture as seedtool
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "gc_fst" / "hulk"
@@ -115,7 +119,7 @@ def test_corrupted_magic_is_structural_red(tmp_path):
         normalize_gc_fst, bad, FIXTURE / "expected.manifest.json",
         REFERENCE, ISO.name, sha256_of(ISO), TOOLS,
     )
-    assert problems and problems[0].startswith("structural:")
+    assert_structural_failure(problems, "not a GameCube disc")
 
 
 @skip_if_no_iso
@@ -141,7 +145,7 @@ def test_truncated_fst_is_structural_red(tmp_path):
     # The patched offset = (real FST offset field @0x424) + 8, read as 4 bytes.
     fst_off = _read_u32_be(ISO, 0x424)
     bad = _patched_copy(ISO, tmp_path, "bad.iso", [(fst_off + 8, struct.pack(">I", 0xFFFF))])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="node table"):
         normalize_gc_fst(bad)
 
 
@@ -161,7 +165,7 @@ def test_out_of_bounds_file_is_structural_red(tmp_path):
         normalize_gc_fst, bad, FIXTURE / "expected.manifest.json",
         REFERENCE, ISO.name, sha256_of(ISO), TOOLS,
     )
-    assert problems and problems[0].startswith("structural:")
+    assert_structural_failure(problems, "exceeds disc size")
 
 
 @skip_if_no_iso
@@ -214,7 +218,6 @@ def _ensure_nested_fixture():
         pytest.skip("retail ISO absent — nested fixture cannot be staged")
     if NESTED_ISO.exists() and NESTED_REFERENCE.exists():
         return
-    import subprocess
     subprocess.run(
         ["uv", "run", "python", str(ROOT / "seedtools" / "make_gc_fst_nested_fixture.py")],
         cwd=str(ROOT), check=True, capture_output=True,
@@ -230,10 +233,6 @@ def nested_iso():
 
 def test_nested_seedtool_streams_disc_authoring(tmp_path, monkeypatch):
     """Disc-sized integer allocations are forbidden; authoring seeks and writes."""
-    import builtins
-
-    from seedtools import make_gc_fst_nested_fixture as seedtool
-
     disc_size = 1 * 1024 * 1024
     monkeypatch.setattr(seedtool, "_GC_DISC_SIZE", disc_size)
     monkeypatch.setattr(seedtool, "_wit_exe", lambda: Path("wit.exe"))
@@ -305,7 +304,7 @@ def test_nested_dir_close_resume_is_structural_red(nested_iso, tmp_path):
         normalize_gc_fst, bad, NESTED / "expected.manifest.json",
         NESTED_REFERENCE, nested_iso.name, sha256_of(nested_iso), NESTED_TOOLS,
     )
-    assert problems and problems[0].startswith("structural:")
+    assert_structural_failure(problems, "invalid next=4")
 
 
 @skip_if_no_iso
@@ -327,7 +326,7 @@ def test_nested_parent_mismatch_is_structural_red(nested_iso, tmp_path):
         normalize_gc_fst, bad, NESTED / "expected.manifest.json",
         NESTED_REFERENCE, nested_iso.name, sha256_of(nested_iso), NESTED_TOOLS,
     )
-    assert problems and problems[0].startswith("structural:")
+    assert_structural_failure(problems, "parent=99")
 
 
 def test_nested_manifest_validates_against_schema():

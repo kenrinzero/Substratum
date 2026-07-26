@@ -24,6 +24,7 @@ from substratum.contract import ByteView, FileSource, FileTree, sha256_of
 from substratum.formats.cso import normalize_cso, sniff
 from substratum.formats.iso9660 import normalize_iso9660
 from substratum.verify import run_checks
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "cso" / "synthetic"
@@ -151,7 +152,7 @@ def _mutate_byte(i, xor):
 def test_bad_magic_is_structural_red(tmp_path):
     bad = _write_bad(tmp_path, _mutate_byte(0, 0xFF))
     problems = _checks(bad)
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "bad magic")
 
 
 def test_zso_refused(tmp_path):
@@ -160,7 +161,7 @@ def test_zso_refused(tmp_path):
         data[0:4] = b"ZISO"
         return data
     problems = _checks(_write_bad(tmp_path, f))
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "bad magic")
 
 
 def test_csov2_version_refused(tmp_path):
@@ -169,7 +170,7 @@ def test_csov2_version_refused(tmp_path):
         data[20] = 2  # ver
         return data
     problems = _checks(_write_bad(tmp_path, f))
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "unsupported version 2")
 
 
 def test_unsupported_blocksize_refused(tmp_path):
@@ -177,7 +178,7 @@ def test_unsupported_blocksize_refused(tmp_path):
         struct.pack_into("<I", data, 16, 4096)  # block_size 4096
         return data
     problems = _checks(_write_bad(tmp_path, f))
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "unsupported block size 4096")
 
 
 def test_truncated_index_is_structural_red(tmp_path):
@@ -185,7 +186,7 @@ def test_truncated_index_is_structural_red(tmp_path):
     def f(data):
         return data[:26]  # header + 2 index bytes only
     problems = _checks(_write_bad(tmp_path, f))
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "out of bounds")
 
 
 def test_corrupt_index_offset_refused(tmp_path):
@@ -195,7 +196,7 @@ def test_corrupt_index_offset_refused(tmp_path):
         struct.pack_into("<I", data, idx_off + 4 * 5, 0xFFFFFFFF)  # offset ~2GB
         return data
     problems = _checks(_write_bad(tmp_path, f))
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "past EOF")
 
 
 def test_corrupted_block_is_structural_red(tmp_path):
@@ -210,7 +211,7 @@ def test_corrupted_block_is_structural_red(tmp_path):
             data[j] = 0
         return data
     problems = _checks(_write_bad(tmp_path, f))
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "decompress")
 
 
 # --- gitignored retail-anchor proof ---------------------------------------

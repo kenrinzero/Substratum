@@ -23,6 +23,7 @@ from substratum.formats import chd as chd_module
 from substratum.formats.chd import normalize_chd, sniff
 from substratum.formats.iso9660 import normalize_iso9660
 from substratum.verify import run_checks
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "chd" / "supertux"
@@ -196,4 +197,4 @@ def test_corrupted_chd_is_structural_red(tmp_path):
         sha256_of(ROOT / "fixtures" / "iso9660" / "supertux" / "supertux.iso"),
         TOOLS,
     )
-    assert problems and any(p.startswith("structural:") for p in problems)
+    assert_structural_failure(problems, "extractcd")

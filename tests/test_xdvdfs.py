@@ -17,6 +17,7 @@ import pytest
 from substratum.contract import FileEntry, FileSource, FileTree, sha256_of
 from substratum.formats.xdvdfs import normalize_xdvdfs, sniff
 from substratum.verify import run_checks
+from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "xdvdfs" / "synthetic"
@@ -120,7 +121,7 @@ def test_corrupted_magic_is_structural_red(tmp_path):
     data[0x10000] ^= 0xFF
     bad.write_bytes(bytes(data))
     problems = _checks(normalize_xdvdfs, fixture=bad)
-    assert problems and problems[0].startswith("structural:")
+    assert_structural_failure(problems, "bad descriptor magic")
 
 
 def test_corrupted_magic_tail_refused(tmp_path):

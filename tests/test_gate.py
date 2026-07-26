@@ -11,6 +11,7 @@ import pytest
 
 from substratum.contract import (
     FileEntry,
+    FileSource,
     FileTree,
     SliceSource,
     canonical_manifest,
@@ -80,8 +81,6 @@ def test_expected_manifest_validates_against_schema():
 def test_canonical_manifest_is_ascii_sorted_stable(tmp_path):
     f = tmp_path / "x.bin"
     f.write_bytes(b"\x00" * 64)
-    from substratum.contract import FileSource
-
     entries = (
         FileEntry("b/ファイル.dat", "file", 8, 8),
         FileEntry("a.txt", "file", 0, 8),
@@ -97,8 +96,6 @@ def test_canonical_manifest_is_ascii_sorted_stable(tmp_path):
 def test_sample_entries_deterministic_and_capped(tmp_path):
     f = tmp_path / "x.bin"
     f.write_bytes(b"\x00" * 4096)
-    from substratum.contract import FileSource
-
     entries = tuple(
         FileEntry(f"f{i:02}.bin", "file", i * 16, 16 if i != 7 else 99)
         for i in range(24)
@@ -111,12 +108,10 @@ def test_sample_entries_deterministic_and_capped(tmp_path):
 
 
 def test_slice_source_bounds():
-    from substratum.contract import FileSource
-
     src = FileSource(TOY / "toy.bin")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="slice out of parent bounds"):
         SliceSource(src, src.size() - 4, 8)
     sl = SliceSource(src, 0, 4)
     assert sl.read_at(0, 4) == b"TOYF"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="read out of slice bounds"):
         sl.read_at(2, 4)
