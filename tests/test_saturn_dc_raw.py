@@ -21,6 +21,7 @@ from pathlib import Path
 import jsonschema
 
 from substratum.contract import ByteView, FileSource, FileTree, sha256_of
+from substratum.formats import saturn_dc_raw as raw_module
 from substratum.formats.iso9660 import normalize_iso9660
 from substratum.formats.saturn_dc_raw import normalize_saturn_dc_raw, sniff
 from substratum.verify import run_checks
@@ -90,6 +91,56 @@ def test_normalize_saturn_dc_raw_returns_byteview():
     # decoded size matches the inner ISO's 2048-byte-sector layout
     assert view.source.size() == ISO.stat().st_size
     assert view.source.size() % 2048 == 0
+
+
+def test_eager_validation_batches_raw_reads(monkeypatch):
+    """A full structural scan reads bounded batches, not one file-open per sector."""
+
+    class CountingFileSource(FileSource):
+        calls: list[tuple[int, int]] = []
+
+        def read_at(self, offset: int, size: int) -> bytes:
+            self.calls.append((offset, size))
+            return super().read_at(offset, size)
+
+    monkeypatch.setattr(raw_module, "FileSource", CountingFileSource)
+    view = raw_module.normalize_saturn_dc_raw(BIN)
+    sector_count = view.source.size() // raw_module.USER_LEN
+    expected_batches = (
+        sector_count + raw_module._RAW_BATCH_SECTORS - 1
+    ) // raw_module._RAW_BATCH_SECTORS
+    assert len(CountingFileSource.calls) == expected_batches
+    assert max(size for _offset, size in CountingFileSource.calls) <= (
+        raw_module._RAW_BATCH_SECTORS * raw_module.SECTOR
+    )
+
+
+def test_cooked_reads_batch_raw_sectors():
+    """The cooked view preserves bytes while bounding underlying read calls."""
+
+    class CountingSource:
+        def __init__(self, path: Path):
+            self.inner = FileSource(path)
+            self.calls: list[tuple[int, int]] = []
+
+        def size(self) -> int:
+            return self.inner.size()
+
+        def read_at(self, offset: int, size: int) -> bytes:
+            self.calls.append((offset, size))
+            return self.inner.read_at(offset, size)
+
+    raw = CountingSource(BIN)
+    sector_count = raw.size() // raw_module.SECTOR
+    source = raw_module._Mode1RemapSource(raw, sector_count)
+    assert source.read_at(0, source.size()) == ISO.read_bytes()
+    expected_batches = (
+        sector_count + raw_module._RAW_BATCH_SECTORS - 1
+    ) // raw_module._RAW_BATCH_SECTORS
+    assert len(raw.calls) == expected_batches
+    assert max(size for _offset, size in raw.calls) <= (
+        raw_module._RAW_BATCH_SECTORS * raw_module.SECTOR
+    )
 
 
 def test_decoded_stream_byte_equal_inner_iso():
@@ -164,6 +215,20 @@ def test_mode2_refused(tmp_path):
     bad_bin.write_bytes(bytes(data))
     problems = _checks(bad_bin)
     assert_structural_failure(problems, "mode 2 != 1")
+
+
+def test_corruption_at_batch_boundary_reports_exact_sector(tmp_path):
+    """Batched validation retains absolute sector diagnostics."""
+    sector = raw_module._RAW_BATCH_SECTORS
+    original = BIN.read_bytes()
+    original_sectors = len(original) // raw_module.SECTOR
+    repeats = (sector + original_sectors) // original_sectors
+    data = bytearray(original * repeats)
+    data[sector * raw_module.SECTOR] ^= 0xFF
+    bad_bin = tmp_path / "bad.bin"
+    bad_bin.write_bytes(data)
+    problems = _checks(bad_bin)
+    assert_structural_failure(problems, f"sector {sector} bad sync pattern")
 
 
 def test_truncated_refused(tmp_path):

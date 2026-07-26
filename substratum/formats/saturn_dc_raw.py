@@ -47,6 +47,7 @@ USER_LEN = 2048
 EDC_LEN = 4
 RESERVED_LEN = 8  # Mode 1 has an 8-byte reserved gap between EDC and ECC
 ECC_LEN = 276
+_RAW_BATCH_SECTORS = 512  # 1,204,224 raw bytes; bounded near the 1 MiB gate chunk
 assert SYNC_LEN + HEADER_LEN + USER_LEN + EDC_LEN + RESERVED_LEN + ECC_LEN == SECTOR
 # user data lives at [16:2064)
 USER_START = SYNC_LEN + HEADER_LEN  # 16
@@ -56,6 +57,25 @@ SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
 MODE1 = 0x01
 # mode byte is the 4th byte of the 4-byte header -> absolute offset 15
 MODE_OFFSET = SYNC_LEN + HEADER_LEN - 1  # 15
+
+
+def _validate_mode1_sector(raw: bytes, index: int) -> bytes:
+    """Validate one raw Mode-1 sector and return its 2048-byte user block."""
+    if len(raw) != SECTOR:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} short read ({len(raw)} < {SECTOR})"
+        )
+    if raw[:SYNC_LEN] != SYNC:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} bad sync pattern "
+            f"(got {raw[:SYNC_LEN].hex()})"
+        )
+    if raw[MODE_OFFSET] != MODE1:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} mode {raw[MODE_OFFSET]} != 1 "
+            "(Mode 2 / audio are out of scope)"
+        )
+    return raw[USER_START:USER_END]
 
 
 class _Mode1RemapSource:
@@ -82,20 +102,7 @@ class _Mode1RemapSource:
         if i == self._cache_i:
             return self._cache_user
         raw = self._raw.read_at(i * SECTOR, SECTOR)
-        if len(raw) != SECTOR:
-            raise ValueError(
-                f"saturn-dc-raw: sector {i} short read ({len(raw)} < {SECTOR})"
-            )
-        if raw[:SYNC_LEN] != SYNC:
-            raise ValueError(
-                f"saturn-dc-raw: sector {i} bad sync pattern (got {raw[:SYNC_LEN].hex()})"
-            )
-        if raw[MODE_OFFSET] != MODE1:
-            raise ValueError(
-                f"saturn-dc-raw: sector {i} mode {raw[MODE_OFFSET]} != 1 "
-                "(Mode 2 / audio are out of scope)"
-            )
-        user = raw[USER_START:USER_END]
+        user = _validate_mode1_sector(raw, i)
         self._cache_i = i
         self._cache_user = user
         return user
@@ -108,11 +115,26 @@ class _Mode1RemapSource:
         out = bytearray()
         pos, stop = offset, offset + size
         while pos < stop:
-            block = self._sector_user(pos // USER_LEN)
+            first_sector = pos // USER_LEN
             within = pos % USER_LEN
-            take = min(USER_LEN - within, stop - pos)
-            out += block[within : within + take]
-            pos += take
+            sectors_needed = (within + stop - pos + USER_LEN - 1) // USER_LEN
+            batch_count = min(_RAW_BATCH_SECTORS, sectors_needed)
+            raw_batch = self._raw.read_at(
+                first_sector * SECTOR, batch_count * SECTOR
+            )
+            for batch_index in range(batch_count):
+                sector_index = first_sector + batch_index
+                raw_offset = batch_index * SECTOR
+                raw = raw_batch[raw_offset : raw_offset + SECTOR]
+                block = _validate_mode1_sector(raw, sector_index)
+                self._cache_i = sector_index
+                self._cache_user = block
+                block_offset = within if batch_index == 0 else 0
+                take = min(USER_LEN - block_offset, stop - pos)
+                out += block[block_offset : block_offset + take]
+                pos += take
+                if pos == stop:
+                    break
         return bytes(out)
 
 
@@ -153,19 +175,18 @@ def normalize_saturn_dc_raw(source) -> ByteView:
 
     # Eager structural pass: validate sync + mode on every sector at
     # normalize time, so a corrupted sector surfaces as a check-1
-    # structural red rather than a check-4 fidelity error mid-read. Only
-    # 16 bytes/sector are read and immediately discarded (the user
-    # stream is NOT materialized).
-    for i in range(n_sectors):
-        raw = src.read_at(i * SECTOR, SECTOR)
-        if raw[:SYNC_LEN] != SYNC:
-            raise ValueError(
-                f"saturn-dc-raw: sector {i} bad sync pattern (got {raw[:SYNC_LEN].hex()})"
-            )
-        if raw[MODE_OFFSET] != MODE1:
-            raise ValueError(
-                f"saturn-dc-raw: sector {i} mode {raw[MODE_OFFSET]} != 1 "
-                "(Mode 2 / audio are out of scope)"
-            )
+    # structural red rather than a check-4 fidelity error mid-read.
+    # Bounded raw batches are read and immediately discarded; the user
+    # stream is NOT materialized.
+    for batch_start in range(0, n_sectors, _RAW_BATCH_SECTORS):
+        batch_count = min(_RAW_BATCH_SECTORS, n_sectors - batch_start)
+        raw_batch = src.read_at(
+            batch_start * SECTOR, batch_count * SECTOR
+        )
+        for batch_index in range(batch_count):
+            i = batch_start + batch_index
+            raw_offset = batch_index * SECTOR
+            raw = raw_batch[raw_offset : raw_offset + SECTOR]
+            _validate_mode1_sector(raw, i)
 
     return ByteView(source=_Mode1RemapSource(src, n_sectors), format="saturn-dc-raw")
