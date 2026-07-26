@@ -42,9 +42,13 @@ For `saturn-dc-raw`, full EDC/P-Q ECC stays with the staging oracle after
 its stdlib runtime cost was benchmarked at roughly 162 seconds for a
 full-sized disc.
 
-The two keyed-platform families (`wii partitions` and `3ds ncch-cia`)
-remain deliberately deferred. See `NORMALIZERS.md` for exact format
-bounds, fixture provenance, and optional proof-strengthening requests.
+Qualified local retail anchors have split the former combined keyed-platform
+row into honest one-layer units. `3ds-cci`, decrypted-only `3ds-ncch`, and
+the unkeyed outer `wii-disc` container are READY. Wii partition AES-CBC
+decoding is prepared but waits on a caller-supplied local common-key file;
+the decrypted Wii FST follows that ByteView. Encrypted/seeded NCCH and CIA
+remain deferred. See `NORMALIZERS.md` for exact format bounds, fixture
+provenance, proof tools, and the dispatch order.
 
 ## Use
 
@@ -96,6 +100,15 @@ restored with `uv run python seedtools/vendor_tools.py chdman`. That is
 the resolution order. Other vendored tools are fixture-authoring or
 differential anchors. A wheel can be built locally with `uv build`, but
 publishing/promotion is intentionally deferred.
+
+The pinned 3DS differential readers are restored with:
+
+```powershell
+uv run python seedtools/vendor_tools.py 3ds
+```
+
+This retains only `ctrtool.exe` and `3dstool.exe` under gitignored `tools/`;
+no 3DS key file is fetched or vendored.
 
 ## How a unit works
 

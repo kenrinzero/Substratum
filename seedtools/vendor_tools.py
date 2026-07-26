@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Vendor the pinned differential tools into gitignored tools/ (prep rows
-`vendor-chdman` + `vendor-dolphin-tool-or-wit`, NORMALIZERS.md).
+recorded in NORMALIZERS.md).
 
 Idempotent re-provisioning: binaries stay out of git (tools/ is ignored);
 this script + the sha256 pins below + the NORMALIZERS.md rows are the
@@ -19,6 +19,9 @@ Tool choices (researched 2026-07-17):
   independent Mode-1 EDC/ECC reconstructor and verifier. The release
   binaries intentionally report v1.3.0; both the asset and executable
   bytes are pinned so that upstream packaging mismatch cannot drift.
+- ctrtool + 3dstool: independently maintained 3DS readers used together
+  for CCI/NCSD and decrypted NCCH listing/extraction. Only the executables
+  are retained; no external key file is downloaded or vendored.
 
 First run prints any sha256 marked TOFU (trust-on-first-use) so it can be
 pinned into this file; a later run on drifted bytes then fails loudly.
@@ -76,6 +79,26 @@ UNECM_EXE_SHA256 = "eda85f9a7b49dd55d918bce80b862a69650a0f7497b94c89b0fa8f395228
 ECM_BANNER = "ECM - Encoder for Error Code Modeler format v1.3.0"
 UNECM_BANNER = "UNECM - Decoder for Error Code Modeler format v1.3.0"
 
+CTRTOOL_VERSION = "v1.3.0"
+CTRTOOL_ZIP = "ctrtool-v1.3.0-win_x64.zip"
+CTRTOOL_URL = (
+    "https://github.com/3DSGuy/Project_CTR/releases/download/"
+    f"ctrtool-{CTRTOOL_VERSION}/{CTRTOOL_ZIP}"
+)
+CTRTOOL_ZIP_SHA256 = "8031dff3be72d0adb250fae1f969f27627e12a89ebc6dd074a15a75f87ddc949"
+CTRTOOL_EXE_SHA256 = "79021f283b2199950eb22cf3c459806b9c8aaaf68f65c80100107d3454a1c224"
+CTRTOOL_BANNER = "CTRTool v1.3.0 (C) jakcron"
+
+THREEDSTOOL_VERSION = "v1.2.6"
+THREEDSTOOL_ZIP = "3dstool.zip"
+THREEDSTOOL_URL = (
+    "https://github.com/dnasdw/3dstool/releases/download/"
+    f"{THREEDSTOOL_VERSION}/{THREEDSTOOL_ZIP}"
+)
+THREEDSTOOL_ZIP_SHA256 = "481e20f445eb2f0f506d0d88cd750385bc8377670d681d6f66f584a176027806"
+THREEDSTOOL_EXE_SHA256 = "967fd5ec6476df1fa6a01da0df5a1fea339aa488c10be218d38e07f4b8143b7e"
+THREEDSTOOL_BANNER = "3dstool 1.2.6 by dnasdw"
+
 DOWNLOAD_TIMEOUT_SECONDS = 60
 TOOL_TIMEOUT_SECONDS = 300
 
@@ -107,6 +130,18 @@ def run_banner(cmd: list[str]) -> str:
         timeout=TOOL_TIMEOUT_SECONDS,
     )
     return (p.stdout + p.stderr).strip().splitlines()[0] if (p.stdout + p.stderr).strip() else ""
+
+
+def run_output(cmd: list[str]) -> str:
+    p = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=TOOL_TIMEOUT_SECONDS,
+    )
+    return (p.stdout + p.stderr).strip()
 
 
 def check_pin(path: Path, expected: str | None, what: str) -> None:
@@ -269,6 +304,72 @@ def vendor_ecm() -> None:
     arc.unlink()
 
 
+def _extract_named_executable(archive: Path, executable: str, destination: Path) -> None:
+    with zipfile.ZipFile(archive) as z:
+        matches = [
+            info
+            for info in z.infolist()
+            if not info.is_dir() and Path(info.filename).name.lower() == executable.lower()
+        ]
+        if len(matches) != 1:
+            raise SystemExit(
+                f"expected exactly one {executable} in {archive.name}, found {len(matches)}"
+            )
+        destination.write_bytes(z.read(matches[0]))
+
+
+def vendor_ctrtool() -> None:
+    tool_dir = TOOLS / "ctrtool"
+    exe = tool_dir / "ctrtool.exe"
+    if exe.exists():
+        check_pin(exe, CTRTOOL_EXE_SHA256, "ctrtool exe")
+        output = run_output([str(exe), "--help"])
+        if CTRTOOL_BANNER not in output:
+            raise SystemExit(f"tools/ctrtool/ctrtool.exe banner is unexpected: {output!r}")
+        print(f"ctrtool already vendored: {CTRTOOL_BANNER}")
+        return
+
+    DL.mkdir(parents=True, exist_ok=True)
+    archive = DL / CTRTOOL_ZIP
+    fetch(CTRTOOL_URL, archive)
+    check_pin(archive, CTRTOOL_ZIP_SHA256, "ctrtool zip")
+
+    tool_dir.mkdir(parents=True, exist_ok=True)
+    _extract_named_executable(archive, "ctrtool.exe", exe)
+    check_pin(exe, CTRTOOL_EXE_SHA256, "ctrtool exe")
+    output = run_output([str(exe), "--help"])
+    if CTRTOOL_BANNER not in output:
+        raise SystemExit(f"extracted ctrtool banner mismatch: {output!r}")
+    print(f"ctrtool OK: {CTRTOOL_BANNER}\n  exe sha256 {sha256_of(exe)}")
+    archive.unlink()
+
+
+def vendor_3dstool() -> None:
+    tool_dir = TOOLS / "3dstool"
+    exe = tool_dir / "3dstool.exe"
+    if exe.exists():
+        check_pin(exe, THREEDSTOOL_EXE_SHA256, "3dstool exe")
+        banner = run_banner([str(exe), "--help"])
+        if banner != THREEDSTOOL_BANNER:
+            raise SystemExit(f"tools/3dstool/3dstool.exe banner is unexpected: {banner!r}")
+        print(f"3dstool already vendored: {banner}")
+        return
+
+    DL.mkdir(parents=True, exist_ok=True)
+    archive = DL / THREEDSTOOL_ZIP
+    fetch(THREEDSTOOL_URL, archive)
+    check_pin(archive, THREEDSTOOL_ZIP_SHA256, "3dstool zip")
+
+    tool_dir.mkdir(parents=True, exist_ok=True)
+    _extract_named_executable(archive, "3dstool.exe", exe)
+    check_pin(exe, THREEDSTOOL_EXE_SHA256, "3dstool exe")
+    banner = run_banner([str(exe), "--help"])
+    if banner != THREEDSTOOL_BANNER:
+        raise SystemExit(f"extracted 3dstool banner mismatch: {banner!r}")
+    print(f"3dstool OK: {banner}\n  exe sha256 {sha256_of(exe)}")
+    archive.unlink()
+
+
 def main() -> None:
     which = set(sys.argv[1:]) or {"chdman", "wit"}
     if "chdman" in which:
@@ -279,6 +380,10 @@ def main() -> None:
         vendor_maxcso()
     if "ecm" in which:
         vendor_ecm()
+    if "ctrtool" in which or "3ds" in which:
+        vendor_ctrtool()
+    if "3dstool" in which or "3ds" in which:
+        vendor_3dstool()
 
 
 if __name__ == "__main__":

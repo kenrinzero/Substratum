@@ -39,6 +39,8 @@ def test_vendored_executable_pins_are_complete_sha256_values():
         vendor_tools.MAXCSO_EXE_SHA256,
         vendor_tools.ECM_EXE_SHA256,
         vendor_tools.UNECM_EXE_SHA256,
+        vendor_tools.CTRTOOL_EXE_SHA256,
+        vendor_tools.THREEDSTOOL_EXE_SHA256,
     )
     assert len(set(pins)) == len(pins)
     assert all(re.fullmatch(r"[0-9a-f]{64}", pin) for pin in pins)
@@ -69,3 +71,10 @@ def test_ecm_release_asset_and_binary_banner_versions_are_both_explicit():
     assert vendor_tools.ECM_RELEASE == "v1.3.1"
     assert vendor_tools.ECM_BANNER.endswith("v1.3.0")
     assert vendor_tools.UNECM_BANNER.endswith("v1.3.0")
+
+
+def test_3ds_tools_are_keyless_executable_only_provisioners():
+    assert vendor_tools.CTRTOOL_BANNER.startswith("CTRTool v1.3.0")
+    assert vendor_tools.THREEDSTOOL_BANNER == "3dstool 1.2.6 by dnasdw"
+    source = (ROOT / "seedtools" / "vendor_tools.py").read_text(encoding="utf-8")
+    assert "ext_key.txt" not in source
