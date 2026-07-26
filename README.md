@@ -24,7 +24,10 @@ through the same four-check structural, manifest, round-trip, and
 byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
 per-test peak-RSS guard. `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
 traversal-capable path components; ISO9660 also refuses directory records
-that overrun an extent or logical block.
+that overrun an extent or logical block. Its real-pressing proof is the
+preservation-metadata-matching Gallop Racer 2001 USA PS2 disc
+(`SLUS-20255`): ten files independently agreed by pycdlib and pinned
+7-Zip, with only metadata committed.
 `ps1-bincue` additionally preserves general
 Mode-2 Form-2 payloads through its public sector API while retaining the
 fixed 2048-byte cooked view needed for ISO9660 LBA composition; its
