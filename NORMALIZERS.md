@@ -26,6 +26,15 @@ at his convenience; never committed, metadata only in outputs).
 | xdvdfs (Xbox) | disc filesystem | T2 | **GREEN** (2026-07-25, `substratum/formats/xdvdfs.py`) | synthetic via `seedtools/make_xdvdfs_fixture.py` (`fixtures/xdvdfs/synthetic/`) plus structural self-consistency proof; balanced root forces valid non-zero left and right pointers through the green path; no retail fixture needed for this unit | structural self-consistency (DESIGN §3) + stdlib-only parser; fidelity sample seed **1** | none new (stdlib `struct`) | XDVDFS descriptor at `0x10000`, little-endian LCRS directory tables walked left → self → right, refuses bad magic/tail, bad root table, bad offsets, out-of-bounds ranges, invalid names, **in-table LCRS pointer cycles AND cross-table directory cycles** (image-wide `dir_tables_seen` set of absolute table offsets, threaded through nested recursion — mirrors iso9660; surfaced + closed in the 2026-07-25 verification) structurally; returns FileTree |
 | wii partitions / 3ds ncch-cia | keyed platforms | T2/T3 | DEFERRED (plan Tier 3) | — | — | keys + tooling | sequenced after open platforms |
 
+**PS1 streaming proof (2026-07-26):** the frozen four-check semantics and
+fixed-width XA view are unchanged, but equal verifier chunks now bypass the
+byte-wise search and `ps1-bincue` validates/reads bounded 512-sector raw
+batches. On the local 157,246-sector BursTrick anchor, normalization improved
+from 6.181793 s to 0.356493 s, an equal 110,608,384-byte comparison from
+4.104896 s to 0.109350 s, and the complete retail gate passed in 1.81 s.
+Exact first-difference offsets, raw-read counts, batch bounds, and corruption
+diagnostics at the first batch boundary are regression-tested.
+
 Prep rows (explicitly-scoped, not normalizer units) — **all DONE
 2026-07-17** via `seedtools/vendor_tools.py` (binaries live in gitignored
 `tools/`; the committed script re-fetches and verifies against its pinned
