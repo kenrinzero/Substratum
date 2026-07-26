@@ -222,15 +222,18 @@ class _Mode2RemapSource:
 
 
 def sniff(source: ByteSource) -> bool:
-    """True when the source begins with the CD-ROM Mode 2 sync pattern.
+    """True when the source begins with a CD-ROM Mode 2 sector.
 
     The full format is confirmed by normalize_ps1_bincue (which needs the
     sibling .cue to know the data-track start). This is a lightweight
     pre-filter; false positives are not dangerous (normalize fails fast).
     """
-    if source.size() < SYNC_LEN:
+    if source.size() < SYNC_LEN + HEADER_LEN:
         return False
-    return source.read_at(0, SYNC_LEN) == SYNC
+    return (
+        source.read_at(0, SYNC_LEN) == SYNC
+        and source.read_at(SYNC_LEN + 3, 1) == bytes((MODE2,))
+    )
 
 
 def _resolve_pair(source) -> tuple[ByteSource, Path]:
