@@ -26,6 +26,10 @@ from substratum.formats.three_ds_ncch import (
     normalize_3ds_ncch,
     sniff as sniff_3ds_ncch,
 )
+from substratum.formats.wii_disc import (
+    normalize_wii_disc,
+    sniff as sniff_wii_disc,
+)
 from substratum.formats.wii_u8_arc import (
     normalize_wii_u8_arc,
     sniff as sniff_wii_u8_arc,
@@ -49,6 +53,7 @@ class _Format:
 _FORMATS = (
     _Format("3ds-cci", sniff_3ds_cci, normalize_3ds_cci),
     _Format("3ds-ncch", sniff_3ds_ncch, normalize_3ds_ncch),
+    _Format("wii-disc", sniff_wii_disc, normalize_wii_disc),
     _Format("chd", sniff_chd, normalize_chd),
     _Format("cso", sniff_cso, normalize_cso),
     _Format("gc-fst", sniff_gc_fst, normalize_gc_fst),

@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 CASES = (
     (
+        "wii-disc",
+        ROOT / "fixtures/_local/The Munchables (USA).iso",
+        FileTree,
+    ),
+    (
         "3ds-ncch",
         ROOT
         / "fixtures/3ds_cci/cubic-ninja/reference/partition0.cxi",
@@ -37,8 +42,8 @@ CASES = (
 
 @pytest.mark.parametrize(("format_name", "fixture", "result_type"), CASES)
 def test_auto_detects_registered_committed_fixtures(format_name, fixture, result_type):
-    if format_name in {"3ds-cci", "3ds-ncch"} and not fixture.exists():
-        pytest.skip("operator-provided 3DS fixture is not staged")
+    if format_name in {"3ds-cci", "3ds-ncch", "wii-disc"} and not fixture.exists():
+        pytest.skip("operator-provided retail fixture is not staged")
     result = normalize(fixture)
     assert isinstance(result, result_type)
     assert result.format == format_name
