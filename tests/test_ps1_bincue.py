@@ -147,6 +147,20 @@ def _mark_form2(data: bytearray, sector: int, payload: bytes) -> None:
     data[base + 24 : base + 2348] = payload
 
 
+def _bcd(value: int) -> int:
+    return ((value // 10) << 4) | (value % 10)
+
+
+def _set_msf_sequence(data: bytearray, origin_frames: int) -> None:
+    for sector, base in enumerate(range(0, len(data), ps1_module.SECTOR)):
+        absolute = origin_frames + sector
+        minute, remainder = divmod(absolute, 60 * 75)
+        second, frame = divmod(remainder, 75)
+        data[base + ps1_module.MSF_OFFSET : base + ps1_module.MSF_OFFSET + 3] = (
+            bytes((_bcd(minute), _bcd(second), _bcd(frame)))
+        )
+
+
 # --- green + basic shape -------------------------------------------------
 
 
@@ -213,7 +227,15 @@ def test_cooked_reads_batch_raw_sectors():
 
     raw = CountingSource(BIN)
     sector_count = raw.size() // ps1_module.SECTOR
-    source = Mode2XASource(raw, 0, sector_count, bytes([1]) * sector_count)
+    first = raw.inner.read_at(0, ps1_module.SECTOR)
+    origin_msf = ps1_module._decode_sector_msf(first, 0)
+    source = Mode2XASource(
+        raw,
+        0,
+        sector_count,
+        bytes([1]) * sector_count,
+        origin_msf,
+    )
     assert source.read_at(0, source.size()) == ISO.read_bytes()
     expected_batches = (
         sector_count + ps1_module._RAW_BATCH_SECTORS - 1
@@ -297,6 +319,70 @@ def test_mode1_refused(tmp_path):
     assert_structural_failure(problems, "mode 1 != 2")
 
 
+def test_invalid_bcd_msf_refused(tmp_path):
+    data = bytearray(BIN.read_bytes())
+    data[ps1_module.MSF_OFFSET] = 0xFA
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+    assert_structural_failure(_checks(bad_bin), "invalid BCD minute 0xfa")
+
+
+def test_out_of_range_msf_refused(tmp_path):
+    data = bytearray(BIN.read_bytes())
+    data[ps1_module.MSF_OFFSET + 1] = 0x60
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+    assert_structural_failure(_checks(bad_bin), "MSF second 60 >= 60")
+
+
+def test_out_of_range_msf_frame_refused(tmp_path):
+    data = bytearray(BIN.read_bytes())
+    data[ps1_module.MSF_OFFSET + 2] = 0x75
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+    assert_structural_failure(_checks(bad_bin), "MSF frame 75 >= 75")
+
+
+def test_non_contiguous_msf_refused(tmp_path):
+    data = bytearray(BIN.read_bytes())
+    second = ps1_module.SECTOR
+    data[second + ps1_module.MSF_OFFSET : second + ps1_module.MSF_OFFSET + 3] = (
+        data[ps1_module.MSF_OFFSET : ps1_module.MSF_OFFSET + 3]
+    )
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+    assert_structural_failure(
+        _checks(bad_bin),
+        "sector 1 MSF 00:00:00 is not contiguous (expected 00:00:01)",
+    )
+
+
+def test_arbitrary_valid_starting_msf_is_accepted(tmp_path):
+    data = bytearray(BIN.read_bytes())
+    _set_msf_sequence(data, (10 * 60 + 2) * 75)
+    shifted_bin = _stage_pair(tmp_path, bytes(data))
+
+    view = normalize_ps1_bincue(shifted_bin)
+    assert view.source.read_at(0, view.source.size()) == ISO.read_bytes()
+
+
+def test_lazy_read_revalidates_msf_after_normalization(tmp_path):
+    data = bytearray(BIN.read_bytes())
+    staged_bin = _stage_pair(tmp_path, bytes(data))
+    source = normalize_ps1_bincue(staged_bin).source
+
+    second = ps1_module.SECTOR
+    data[second + ps1_module.MSF_OFFSET : second + ps1_module.MSF_OFFSET + 3] = (
+        data[ps1_module.MSF_OFFSET : ps1_module.MSF_OFFSET + 3]
+    )
+    staged_bin.write_bytes(data)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "sector 1 MSF 00:00:00 is not contiguous "
+            r"\(expected 00:00:01\)"
+        ),
+    ):
+        source.read_sector(1)
+
+
 def test_corruption_at_batch_boundary_reports_exact_sector(tmp_path):
     """Batched validation retains absolute sector diagnostics."""
     sector = ps1_module._RAW_BATCH_SECTORS
@@ -304,6 +390,7 @@ def test_corruption_at_batch_boundary_reports_exact_sector(tmp_path):
     original_sectors = len(original) // ps1_module.SECTOR
     repeats = (sector + original_sectors) // original_sectors
     data = bytearray(original * repeats)
+    _set_msf_sequence(data, 0)
     data[sector * ps1_module.SECTOR] ^= 0xFF
     bad_bin = _stage_pair(tmp_path, bytes(data))
     problems = _checks(bad_bin)

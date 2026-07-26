@@ -42,6 +42,8 @@ Scope — deliberately unit-bounded (mirrors `iso9660` discipline):
 - Mode 1, audio, multi-track, CD-TEXT, and subchannel data are refused.
 - Single data track, MODE2/2352, INDEX 01 00:00:00 in the .cue.
 - A .bin without a .cue sibling is refused (sniff-only on raw bytes).
+- Raw sector headers must contain valid BCD minute/second/frame values
+  and advance contiguously from their first (arbitrary) address.
 
 Runtime is stdlib-only per DESIGN.md § 4.
 """
@@ -78,6 +80,7 @@ assert SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN + EDC_LEN + ECC_LEN == SECT
 SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
 MODE2 = 0x02
 FORM2_BIT = 0x20
+MSF_OFFSET = SYNC_LEN  # header[0:3] -> absolute [12:15)
 
 # CUE regexes — strict single-track MODE2/2352, INDEX 01 00:00:00.
 _RE_FILE = re.compile(r'^\s*FILE\s+"([^"]+)"\s+(BINARY|BINARY/WAVE|WAVE|AIFF|MOTOROLA)\s*$')
@@ -131,6 +134,50 @@ def _validate_mode2_sector(
         )
     form = 2 if first[2] & FORM2_BIT else 1
     return first[0], first[1], first[2], first[3], form
+
+
+def _from_bcd(value: int, field: str, abs_sec: int) -> int:
+    high, low = value >> 4, value & 0x0F
+    if high > 9 or low > 9:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} invalid BCD {field} 0x{value:02x}"
+        )
+    return high * 10 + low
+
+
+def _decode_sector_msf(raw: bytes, abs_sec: int) -> int:
+    minute = _from_bcd(raw[MSF_OFFSET], "minute", abs_sec)
+    second = _from_bcd(raw[MSF_OFFSET + 1], "second", abs_sec)
+    frame = _from_bcd(raw[MSF_OFFSET + 2], "frame", abs_sec)
+    if second >= 60:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} MSF second {second} >= 60"
+        )
+    if frame >= 75:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} MSF frame {frame} >= 75"
+        )
+    return (minute * 60 + second) * 75 + frame
+
+
+def _format_sector_msf(frame_number: int) -> str:
+    minute, remainder = divmod(frame_number, 60 * 75)
+    second, frame = divmod(remainder, 75)
+    return f"{minute:02d}:{second:02d}:{frame:02d}"
+
+
+def _validate_sector_msf(
+    raw: bytes,
+    abs_sec: int,
+    expected_msf: int | None,
+) -> int:
+    got_msf = _decode_sector_msf(raw, abs_sec)
+    if expected_msf is not None and got_msf != expected_msf:
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} MSF {_format_sector_msf(got_msf)} "
+            f"is not contiguous (expected {_format_sector_msf(expected_msf)})"
+        )
+    return got_msf
 
 
 def _parse_msf(m: int, s: int, f: int) -> int:
@@ -227,6 +274,7 @@ class Mode2XASource:
         start_sector: int,
         n_sectors: int,
         forms: bytes,
+        origin_msf: int,
     ) -> None:
         if len(forms) != n_sectors or any(form not in (1, 2) for form in forms):
             raise ValueError("ps1-bincue: invalid prevalidated sector-form map")
@@ -234,6 +282,7 @@ class Mode2XASource:
         self._start = start_sector
         self._n = n_sectors
         self._forms = forms
+        self._origin_msf = origin_msf
         self._cache_i = -1
         self._cache_sector: XASector | None = None
 
@@ -282,6 +331,7 @@ class Mode2XASource:
         file_number, channel_number, submode, coding_info, form = (
             _validate_mode2_sector(raw, abs_sec)
         )
+        _validate_sector_msf(raw, abs_sec, self._origin_msf + index)
         if form != self._forms[index]:
             raise ValueError(
                 f"ps1-bincue: sector {abs_sec} form changed after validation "
@@ -379,8 +429,9 @@ def normalize_ps1_bincue(source) -> ByteView:
     for each complete 2048/2324-byte XA payload (DESIGN §1).
 
     Refusals (structural reds): no .cue sibling, multi-track, audio,
-    non-MODE2/2352, bad INDEX 01, sync mismatch, mode != 2, .bin
-    not a multiple of 2352, or mismatched XA subheader copies.
+    non-MODE2/2352, bad INDEX 01, sync mismatch, mode != 2, invalid or
+    non-contiguous BCD/MSF, .bin not a multiple of 2352, or mismatched
+    XA subheader copies.
     """
     src, cue_path = _resolve_pair(source)
     bin_name, start_sector = _parse_cue(cue_path)
@@ -406,12 +457,13 @@ def normalize_ps1_bincue(source) -> ByteView:
             f"ps1-bincue: data track start {start_sector} >= total sectors {n_raw}"
         )
 
-    # Eager structural pass: validate sync + mode on every data sector
-    # at normalize time, so a corrupted sector surfaces as a check-1
-    # structural red (verify.py wraps normalize_fn in try/except) rather
-    # than a check-4 fidelity error mid-read. The user stream is NOT
-    # materialized — these reads are discarded immediately.
+    # Eager structural pass: validate sync + mode + BCD/MSF sequence on
+    # every data sector at normalize time, so corruption surfaces as a
+    # check-1 structural red (verify.py wraps normalize_fn in try/except)
+    # rather than a check-4 fidelity error mid-read. The user stream is
+    # NOT materialized — these reads are discarded immediately.
     forms = bytearray(n_data)
+    origin_msf: int | None = None
     for batch_start in range(0, n_data, _RAW_BATCH_SECTORS):
         batch_count = min(_RAW_BATCH_SECTORS, n_data - batch_start)
         abs_start = start_sector + batch_start
@@ -422,9 +474,23 @@ def normalize_ps1_bincue(source) -> ByteView:
             raw_offset = batch_index * SECTOR
             raw = raw_batch[raw_offset : raw_offset + SECTOR]
             *_metadata, form = _validate_mode2_sector(raw, abs_sec)
+            got_msf = _validate_sector_msf(
+                raw,
+                abs_sec,
+                None if origin_msf is None else origin_msf + i,
+            )
+            if origin_msf is None:
+                origin_msf = got_msf
             forms[i] = form
 
+    assert origin_msf is not None
     return ByteView(
-        source=Mode2XASource(src, start_sector, n_data, bytes(forms)),
+        source=Mode2XASource(
+            src,
+            start_sector,
+            n_data,
+            bytes(forms),
+            origin_msf,
+        ),
         format="ps1-bincue",
     )
