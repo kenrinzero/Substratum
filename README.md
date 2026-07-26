@@ -16,13 +16,13 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.9 (2026-07-26): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and nine real
+Version 0.0.10 (2026-07-26): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and ten real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
-`saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, and `3ds-cci`. Every unit runs
-through the same four-check structural, manifest, round-trip, and
-byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
-per-test peak-RSS guard. `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
+`saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, and `3ds-ncch`.
+Every unit runs through the same four-check structural, manifest,
+round-trip, and byte-fidelity gate; the large GameCube fixtures also carry
+a 1 GB per-test peak-RSS guard. `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
 traversal-capable path components; ISO9660 also refuses directory records
 that overrun an extent or logical block. Its real-pressing proof is the
 preservation-metadata-matching Gallop Racer 2001 USA PS2 disc
@@ -47,13 +47,17 @@ and update CFA remain lazy opaque slices into the original CCI, with complete
 payload fidelity independently proved by pinned ctrtool and 3dstool. It
 refuses media-size drift, malformed/overlapping/out-of-bounds partition
 tables, duplicate partition IDs, NCSD/NCCH ID disagreement, and bad magics.
+`3ds-ncch` takes the decrypted CXI as a separate caller-visible layer and
+exposes its extended header, plain region, ExeFS, and RomFS as lazy opaque
+slices. It validates the NCCH-declared protected hashes and refuses encrypted
+or seeded content, malformed ranges, overlap, and hash drift without
+traversing ExeFS or RomFS.
 Qualified local retail anchors have split the remaining keyed-platform work
-into honest one-layer units. Decrypted-only `3ds-ncch` and the unkeyed outer
-`wii-disc` container are READY. Wii partition AES-CBC
-decoding is prepared but waits on a caller-supplied local common-key file;
-the decrypted Wii FST follows that ByteView. Encrypted/seeded NCCH and CIA
-remain deferred. See `NORMALIZERS.md` for exact format bounds, fixture
-provenance, proof tools, and the dispatch order.
+into honest one-layer units. The unkeyed outer `wii-disc` container is READY.
+Wii partition AES-CBC decoding is prepared but waits on a caller-supplied
+local common-key file; the decrypted Wii FST follows that ByteView.
+Encrypted/seeded NCCH and CIA remain deferred. See `NORMALIZERS.md` for exact
+format bounds, fixture provenance, proof tools, and the dispatch order.
 
 ## Use
 
