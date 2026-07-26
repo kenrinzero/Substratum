@@ -2,10 +2,13 @@
 """Author the synthetic PS1 BIN/CUE fixture (NORMALIZERS.md row
 `ps1-bincue`).
 
-The unit's substance is Mode 2 Form 1 sector-format handling — a normalizer
-must remap the raw 2352-byte sector stream to the 2048-byte user-data stream
-the existing `iso9660` normalizer already walks. This seedtool authors both
-representations in one deterministic run, plus the structural anchor:
+The committed base fixture's substance is Mode 2 Form 1 sector-format
+handling — a normalizer must remap the raw 2352-byte sector stream to the
+2048-byte user-data stream the existing `iso9660` normalizer already walks.
+The test suite derives deterministic mixed Form-2 sectors from these bytes
+to prove the lossless sector API without duplicating a second carrier. This
+seedtool authors both base representations in one deterministic run, plus
+the structural anchor:
 
   1. pycdlib authors a small PS1-shaped XA ISO (`interchange_level=1,
      xa=True`): SYSTEM.CNF-style boot stub, a few data files, an empty

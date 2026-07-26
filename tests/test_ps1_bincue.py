@@ -1,9 +1,10 @@
 """Gate tests for the ps1-bincue normalizer (NORMALIZERS.md row `ps1-bincue`).
 
-The ps1-bincue normalizer returns a ByteView of the inner 2048-byte user-data
-stream (DESIGN.md §1 composition rule: one layer, never recurse). The test
-wraps that ByteView through `normalize_iso9660` to get a FileTree for the
-four-check gate — the same shape test_chd.py and test_cso.py use.
+The ps1-bincue normalizer returns a ByteView whose ordinary reads expose the
+fixed 2048-byte cooked stream used for ISO9660 composition, while its concrete
+Mode2XASource also exposes complete 2048/2324-byte sector payloads. The test
+wraps the cooked view through `normalize_iso9660` for the four-check gate and
+proves the sector API independently against raw offsets.
 
 Expected manifest entries are authored by seedtools/make_ps1_bincue_fixture.py
 from pycdlib's records (second independent reader, never the parser under
@@ -19,7 +20,12 @@ import jsonschema
 import pytest
 
 from substratum.contract import ByteView, FileSource, FileTree, sha256_of
-from substratum.formats.ps1_bincue import normalize_ps1_bincue, sniff
+from substratum.formats.ps1_bincue import (
+    Mode2XASource,
+    XASector,
+    normalize_ps1_bincue,
+    sniff,
+)
 from substratum.formats.iso9660 import normalize_iso9660
 from substratum.verify import run_checks
 
@@ -46,6 +52,20 @@ RETAIL_BIN_SHA256 = (
 RETAIL_CUE_SHA256 = (
     "955b14c0a14254dd2866c0ee0ab15e02906f8020120295f6a681a62aeeb90ab7"
 )
+FORM2_RETAIL_BIN = (
+    ROOT
+    / "fixtures"
+    / "_local"
+    / "bin-chd-playstation"
+    / "BursTrick - Wake Boarding!! (USA).bin"
+)
+FORM2_RETAIL_CUE = FORM2_RETAIL_BIN.with_suffix(".cue")
+FORM2_RETAIL_BIN_SHA256 = (
+    "21f02044173b2298199fb3d0adf1673520a3b044fd61e7f0b7b1f30a0b90ce40"
+)
+FORM2_RETAIL_CUE_SHA256 = (
+    "c37e5918d9eaaf7ceedb456210d60e98c3d515bf23b2dc909c83bf7b82b9a445"
+)
 
 # Tool versions — must byte-match what make_ps1_bincue_fixture stamped
 # into the expected manifest. Re-authoring on a drifted tool changes the
@@ -66,6 +86,10 @@ RETAIL_TOOLS = {
 skip_if_no_retail_anchor = pytest.mark.skipif(
     not RETAIL_BIN.exists() or not RETAIL_REFERENCE.exists(),
     reason="King's Field retail BIN/CUE or gitignored reference extraction absent",
+)
+skip_if_no_form2_retail = pytest.mark.skipif(
+    not FORM2_RETAIL_BIN.exists() or not FORM2_RETAIL_CUE.exists(),
+    reason="BursTrick mixed-XA retail BIN/CUE absent",
 )
 
 
@@ -130,9 +154,11 @@ def test_normalize_ps1_bincue_returns_byteview():
     view = normalize_ps1_bincue(BIN)
     assert isinstance(view, ByteView)
     assert view.format == "ps1-bincue"
+    assert isinstance(view.source, Mode2XASource)
     # decoded size matches the inner ISO's 2048-byte-sector layout
     assert view.source.size() == ISO.stat().st_size
     assert view.source.size() % 2048 == 0
+    assert view.source.sector_count() == ISO.stat().st_size // 2048
 
 
 def test_decoded_stream_byte_equal_inner_iso():
@@ -217,35 +243,77 @@ def test_zero_filled_form2_system_area_is_accepted(tmp_path):
 
     view = normalize_ps1_bincue(mixed_bin)
     assert view.source.read_at(0, view.source.size()) == ISO.read_bytes()
+    assert tuple(view.source.form2_sectors()) == (12, 13, 14, 15)
     assert _checks(mixed_bin) == []
 
 
-def test_nonzero_form2_system_area_refused_structurally(tmp_path):
-    """The exception is padding-only, never general XA Form-2 support."""
+def test_nonzero_form2_system_area_payload_is_preserved(tmp_path):
+    """General Form 2 preserves all 2324 payload bytes without moving LBAs."""
     data = bytearray(BIN.read_bytes())
-    _mark_form2(data, 12, b"\x01" + b"\x00" * 2323)
-    bad_bin = _stage_pair(tmp_path, bytes(data))
+    payload = bytes(i % 251 for i in range(2324))
+    _mark_form2(data, 12, payload)
+    mixed_bin = _stage_pair(tmp_path, bytes(data))
 
-    with pytest.raises(ValueError, match="non-zero.*Form 2"):
-        normalize_ps1_bincue(bad_bin)
-    assert any(
-        "non-zero" in problem and "Form 2" in problem
-        for problem in _checks(bad_bin)
+    view = normalize_ps1_bincue(mixed_bin)
+    assert isinstance(view.source, Mode2XASource)
+    sector = view.source.read_sector(12)
+    assert isinstance(sector, XASector)
+    assert sector.index == 12
+    assert sector.form == 2
+    assert sector.payload == payload
+    assert view.source.read_at(12 * 2048, 2048) == payload[:2048]
+    # Sector 12 is in ISO9660's ignored system area. Changing it must not
+    # shift the PVD at sector 16 or corrupt the filesystem walk.
+    assert len(normalize_iso9660(view.source).entries) == len(
+        normalize_iso9660(FileSource(ISO)).entries
     )
 
 
-def test_zero_filled_form2_at_pvd_or_later_refused_structurally(tmp_path):
-    """Even zero-filled Form 2 remains out of scope at sector 16 and later."""
+def test_form2_at_pvd_or_later_keeps_cooked_iso_view_and_full_payload(tmp_path):
+    """The 2048 cooked view stays LBA-stable while sector API keeps the tail."""
     data = bytearray(BIN.read_bytes())
-    _mark_form2(data, 16, b"\x00" * 2324)
-    bad_bin = _stage_pair(tmp_path, bytes(data))
+    base = 16 * 2352
+    original_user = bytes(data[base + 24 : base + 24 + 2048])
+    tail = bytes((255 - i) % 256 for i in range(276))
+    payload = original_user + tail
+    _mark_form2(data, 16, payload)
+    mixed_bin = _stage_pair(tmp_path, bytes(data))
 
-    with pytest.raises(ValueError, match="outside.*system area"):
-        normalize_ps1_bincue(bad_bin)
-    assert any(
-        "outside" in problem and "system area" in problem
-        for problem in _checks(bad_bin)
+    view = normalize_ps1_bincue(mixed_bin)
+    assert view.source.sector_form(16) == 2
+    assert tuple(view.source.form2_sectors()) == (16,)
+    sector = view.source.read_sector(16)
+    assert sector.payload == payload
+    assert sector.payload[2048:] == tail
+    assert view.source.read_at(16 * 2048, 2048) == original_user
+    next_user = bytes(data[17 * 2352 + 24 : 17 * 2352 + 24 + 2048])
+    assert view.source.read_at(17 * 2048 - 8, 16) == (
+        original_user[-8:] + next_user[:8]
     )
+    # The existing four-check ISO gate remains byte-identical because the
+    # cooked view is still exactly 2048 bytes per logical sector.
+    assert _checks(mixed_bin) == []
+
+
+def test_form1_sector_api_and_bounds():
+    """The sector API is uniform across forms and rejects invalid indices."""
+    view = normalize_ps1_bincue(BIN)
+    source = view.source
+    sector = source.read_sector(16)
+    raw = BIN.read_bytes()[16 * 2352 : 17 * 2352]
+    assert sector == XASector(
+        index=16,
+        form=1,
+        file_number=0,
+        channel_number=0,
+        submode=0x08,
+        coding_info=0,
+        payload=raw[24:2072],
+    )
+    with pytest.raises(ValueError, match="sector index -1 out of bounds"):
+        source.read_sector(-1)
+    with pytest.raises(ValueError, match="sector index .* out of bounds"):
+        source.read_sector(source.sector_count())
 
 
 def test_mismatched_xa_subheader_copies_refused_structurally(tmp_path):
@@ -412,3 +480,37 @@ def test_kings_field_identity_and_form2_scope():
     paths = {entry.path for entry in tree.entries}
     assert {"LICENSEJ.DAT", "PSX.EXE"} <= paths
     assert len(tree.entries) == 470
+
+
+@skip_if_no_form2_retail
+def test_burstrick_mixed_xa_exposes_full_form2_payloads():
+    """The genuine PS1 mixed-XA anchor exercises general Form-2 support."""
+    assert sha256_of(FORM2_RETAIL_BIN) == FORM2_RETAIL_BIN_SHA256
+    assert sha256_of(FORM2_RETAIL_CUE) == FORM2_RETAIL_CUE_SHA256
+
+    view = normalize_ps1_bincue(FORM2_RETAIL_BIN)
+    source = view.source
+    assert isinstance(source, Mode2XASource)
+    assert source.sector_count() == 157_246
+    form2 = tuple(source.form2_sectors())
+    assert len(form2) == 60_666
+    assert form2[:5] == (12, 13, 14, 15, 5555)
+    assert form2[-5:] == (132_832, 132_837, 132_838, 132_839, 132_840)
+
+    sector = source.read_sector(24_829)
+    assert sector.form == 2
+    assert (
+        sector.file_number,
+        sector.channel_number,
+        sector.submode,
+        sector.coding_info,
+    ) == (1, 0, 0x64, 1)
+    raw = FileSource(FORM2_RETAIL_BIN).read_at(24_829 * 2352, 2352)
+    assert sector.payload == raw[24:2348]
+    assert len(sector.payload) == 2324
+
+    tree = normalize_iso9660(source)
+    paths = {entry.path for entry in tree.entries}
+    assert {"SYSTEM.CNF", "XA/SOTOMAWA.XA", "XA/STAGEBGM.XA"} <= paths
+    system = next(entry for entry in tree.entries if entry.path == "SYSTEM.CNF")
+    assert b"SLUS_013.17" in tree.read(system)

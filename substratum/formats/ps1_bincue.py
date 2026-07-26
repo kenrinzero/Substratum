@@ -1,10 +1,18 @@
 """PS1 BIN/CUE normalizer (NORMALIZERS.md row `ps1-bincue`).
 
-Remaps a raw 2352-byte-sector CD-ROM XA Mode 2 Form 1 disc image (a PS1
-or PS2-CD `.bin` paired with a `.cue` sheet) to the 2048-byte user-data
+Remaps a raw 2352-byte-sector CD-ROM XA Mode 2 disc image (a PS1 or
+PS2-CD `.bin` paired with a `.cue` sheet) to the fixed 2048-byte cooked
 stream the existing `iso9660` normalizer walks. Returns exactly ONE layer
 — a `ByteView`; the caller re-normalizes it with `iso9660` (DESIGN §1
 composition rule; same shape as `chd`).
+
+Mixed XA discs also carry Mode 2 Form-2 sectors with 2324 payload bytes.
+Those cannot be concatenated into the cooked stream without shifting every
+later ISO LBA. The returned ByteView therefore uses a public
+`Mode2XASource`: ordinary `read_at()` exposes the LBA-stable first 2048
+bytes of every sector, while `read_sector()` exposes each complete Form-1
+or Form-2 payload plus its XA file/channel/submode metadata. No payload
+bytes are discarded from the format-specific sector API.
 
 Sector layout (ECMA-130 / Yellow Book Mode 2 Form 1):
   [0:12)   sync  (`00 FF*10 00`)
@@ -15,6 +23,12 @@ Sector layout (ECMA-130 / Yellow Book Mode 2 Form 1):
   [2076:2352) ECC (276 bytes)
   total = 12+4+8+2048+4+276 = 2352 bytes
 
+Sector layout (Mode 2 Form 2):
+  [0:24)     sync + header + repeated XA subheader (as above)
+  [24:2348)  user data (2324 bytes)
+  [2348:2352) EDC (4 bytes)
+  total = 12+4+8+2324+4 = 2352 bytes
+
 The unit's substance is sector-format understanding (the spec
 deliberately rejects a shell-out-to-chdman variant — that would delegate
 the system's responsibility to the same tool that is the structural
@@ -22,9 +36,9 @@ anchor, collapsing toward a one-party round-trip). pycdlib is the byte
 differential; chdman is the structural anchor.
 
 Scope — deliberately unit-bounded (mirrors `iso9660` discipline):
-- Mode 2 Form 1, plus zero-filled Form-2 padding in the ISO9660 system
-  area (sectors 0-15). Non-zero Form 2 and all Form 2 at sector 16 or
-  later remain refused; video/ADPCM payload support is a separate row.
+- Mode 2 Form 1 and Form 2, including mixed/interleaved XA data. This
+  normalizer exposes encoded payload bytes and XA metadata; decoding
+  video/ADPCM content belongs to a downstream asset decoder.
 - Mode 1, audio, multi-track, CD-TEXT, and subchannel data are refused.
 - Single data track, MODE2/2352, INDEX 01 00:00:00 in the .cue.
 - A .bin without a .cue sibling is refused (sniff-only on raw bytes).
@@ -35,11 +49,18 @@ Runtime is stdlib-only per DESIGN.md § 4.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 from substratum.contract import ByteSource, ByteView, FileSource
 
-__all__ = ["sniff", "normalize_ps1_bincue"]
+__all__ = [
+    "XASector",
+    "Mode2XASource",
+    "sniff",
+    "normalize_ps1_bincue",
+]
 
 # --- CD-ROM Mode 2 Form 1 sector layout (ECMA-130) -------------------------
 SECTOR = 2352
@@ -51,7 +72,6 @@ USER_LEN = 2048
 FORM2_USER_LEN = 2324
 EDC_LEN = 4
 ECC_LEN = 276
-ISO_SYSTEM_AREA_SECTORS = 16
 assert SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN + EDC_LEN + ECC_LEN == SECTOR
 
 SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
@@ -68,14 +88,23 @@ class _CueError(ValueError):
     """Refusal from a malformed .cue. Becomes a structural red at check 1."""
 
 
-def _validate_mode2_sector(raw: bytes, abs_sec: int) -> None:
-    """Validate a supported sector envelope and its repeated XA subheader.
+@dataclass(frozen=True, slots=True)
+class XASector:
+    """One validated Mode-2 sector with its complete user payload."""
 
-    Form 2 is admitted only as all-zero padding before ISO9660's first
-    volume descriptor. Those sectors contribute the same 2048 zero bytes
-    to the logical view as ordinary Form-1 system-area padding; no
-    2324-byte payload semantics are exposed.
-    """
+    index: int
+    form: int
+    file_number: int
+    channel_number: int
+    submode: int
+    coding_info: int
+    payload: bytes
+
+
+def _validate_mode2_sector(
+    raw: bytes, abs_sec: int
+) -> tuple[int, int, int, int, int]:
+    """Validate the sector envelope and return XA metadata plus form."""
     if len(raw) != SECTOR:
         raise ValueError(
             f"ps1-bincue: sector {abs_sec} short read ({len(raw)} < {SECTOR})"
@@ -99,23 +128,8 @@ def _validate_mode2_sector(raw: bytes, abs_sec: int) -> None:
             f"ps1-bincue: sector {abs_sec} XA subheader copies differ "
             f"({first.hex()} != {repeated.hex()})"
         )
-    if not first[2] & FORM2_BIT:
-        return
-
-    if abs_sec >= ISO_SYSTEM_AREA_SECTORS:
-        raise ValueError(
-            f"ps1-bincue: sector {abs_sec} is Mode 2 Form 2 "
-            "outside the supported zero-filled ISO9660 system area "
-            f"(sectors 0-{ISO_SYSTEM_AREA_SECTORS - 1})"
-        )
-    payload_start = SYNC_LEN + HEADER_LEN + XA_SUB_LEN
-    payload = raw[payload_start : payload_start + FORM2_USER_LEN]
-    if any(payload):
-        raise ValueError(
-            f"ps1-bincue: sector {abs_sec} has a non-zero Mode 2 Form 2 "
-            "payload in the ISO9660 system area "
-            "(general 2324-byte Form 2 payloads are out of scope)"
-        )
+    form = 2 if first[2] & FORM2_BIT else 1
+    return first[0], first[1], first[2], first[3], form
 
 
 def _parse_msf(m: int, s: int, f: int) -> int:
@@ -156,8 +170,8 @@ def _parse_cue(cue_path: Path) -> tuple[str, int]:
             _num, mode = m.group(1), m.group(2)
             if mode != "MODE2/2352":
                 raise _CueError(
-                    f"cue: track mode {mode!r} out of scope (Mode 2 Form 1 only — "
-                    "Mode 1 / Form 2 / audio are separate rows)"
+                    f"cue: track mode {mode!r} out of scope "
+                    "(only raw Mode 2 data is supported; Mode 1 / audio are separate rows)"
                 )
             track_mode = mode
             saw_track = True
@@ -192,42 +206,92 @@ def _parse_cue(cue_path: Path) -> tuple[str, int]:
     return bin_name, index01_start
 
 
-class _Mode2RemapSource:
-    """Lazy ByteSource over the supported Mode-2 user-data stream.
+class Mode2XASource:
+    """Lazy ByteSource plus complete sector access for a Mode-2 XA track.
 
     Nothing is materialized (DESIGN §1): `read_at` maps output offsets
     to (sector index, sector offset) and reads each 2352-byte sector
     from the underlying raw .bin on demand. A one-sector cache keeps
     sequential reads within a sector from re-reading the raw bytes.
-    Admitted Form-2 system padding is all zero, so its first 2048 bytes
-    are the canonical logical-sector representation.
+
+    `read_at` is the fixed 2048-byte cooked/LBA view required for ISO9660
+    composition. `read_sector` is the lossless XA view: it returns all
+    2048 Form-1 or 2324 Form-2 payload bytes and the repeated subheader's
+    metadata. The eager form map contains one byte per sector, not payload.
     """
 
-    def __init__(self, raw: ByteSource, start_sector: int, n_sectors: int) -> None:
+    def __init__(
+        self,
+        raw: ByteSource,
+        start_sector: int,
+        n_sectors: int,
+        forms: bytes,
+    ) -> None:
+        if len(forms) != n_sectors or any(form not in (1, 2) for form in forms):
+            raise ValueError("ps1-bincue: invalid prevalidated sector-form map")
         self._raw = raw
         self._start = start_sector
         self._n = n_sectors
+        self._forms = forms
         self._cache_i = -1
-        self._cache_user = b""
+        self._cache_sector: XASector | None = None
 
     def size(self) -> int:
         return self._n * USER_LEN
 
-    def _sector_user(self, i: int) -> bytes:
-        """Read sector i's 2048-byte user block, validating sync + mode.
+    def sector_count(self) -> int:
+        """Number of sectors in the data track."""
+        return self._n
 
-        i is a 0-based data-track sector index; the corresponding raw
-        sector lives at self._raw[(self._start + i) * SECTOR : ...].
+    def sector_form(self, index: int) -> int:
+        """Return 1 or 2 for a validated track-relative sector index."""
+        self._check_sector_index(index)
+        return self._forms[index]
+
+    def form2_sectors(self) -> Iterator[int]:
+        """Iterate track-relative indices of every Mode-2 Form-2 sector."""
+        return (index for index, form in enumerate(self._forms) if form == 2)
+
+    def _check_sector_index(self, index: int) -> None:
+        if index < 0 or index >= self._n:
+            raise ValueError(
+                f"sector index {index} out of bounds (sector count {self._n})"
+            )
+
+    def read_sector(self, index: int) -> XASector:
+        """Read one complete XA user payload and its subheader metadata.
+
+        `index` is relative to the data track. Payload length is 2048 for
+        Form 1 and 2324 for Form 2.
         """
-        if i == self._cache_i:
-            return self._cache_user
-        abs_sec = self._start + i
+        self._check_sector_index(index)
+        if index == self._cache_i:
+            assert self._cache_sector is not None
+            return self._cache_sector
+        abs_sec = self._start + index
         raw = self._raw.read_at(abs_sec * SECTOR, SECTOR)
-        _validate_mode2_sector(raw, abs_sec)
-        user = bytes(raw[SYNC_LEN + HEADER_LEN + XA_SUB_LEN : SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN])
-        self._cache_i = i
-        self._cache_user = user
-        return user
+        file_number, channel_number, submode, coding_info, form = (
+            _validate_mode2_sector(raw, abs_sec)
+        )
+        if form != self._forms[index]:
+            raise ValueError(
+                f"ps1-bincue: sector {abs_sec} form changed after validation "
+                f"({self._forms[index]} -> {form})"
+            )
+        payload_len = FORM2_USER_LEN if form == 2 else USER_LEN
+        payload_start = SYNC_LEN + HEADER_LEN + XA_SUB_LEN
+        sector = XASector(
+            index=index,
+            form=form,
+            file_number=file_number,
+            channel_number=channel_number,
+            submode=submode,
+            coding_info=coding_info,
+            payload=bytes(raw[payload_start : payload_start + payload_len]),
+        )
+        self._cache_i = index
+        self._cache_sector = sector
+        return sector
 
     def read_at(self, offset: int, size: int) -> bytes:
         if offset < 0 or size < 0 or offset + size > self.size():
@@ -237,7 +301,7 @@ class _Mode2RemapSource:
         out = bytearray()
         pos, stop = offset, offset + size
         while pos < stop:
-            block = self._sector_user(pos // USER_LEN)
+            block = self.read_sector(pos // USER_LEN).payload
             within = pos % USER_LEN
             take = min(USER_LEN - within, stop - pos)
             out += block[within : within + take]
@@ -284,15 +348,17 @@ def _resolve_pair(source) -> tuple[ByteSource, Path]:
 
 
 def normalize_ps1_bincue(source) -> ByteView:
-    """Map a PS1 .bin/.cue to a ByteView of the 2048-byte user-data stream.
+    """Map a PS1 .bin/.cue to a cooked ByteView with lossless XA access.
 
     Accepts a path (str/Path) to the .bin or a FileSource over the .bin.
     Resolves the sibling .cue, parses the single data track, and returns
-    a lazy ByteView — the caller composes with `iso9660` (DESIGN §1).
+    a lazy ByteView backed by `Mode2XASource`. The caller may compose the
+    fixed 2048-byte `read_at` view with `iso9660`, or call `read_sector`
+    for each complete 2048/2324-byte XA payload (DESIGN §1).
 
     Refusals (structural reds): no .cue sibling, multi-track, audio,
     non-MODE2/2352, bad INDEX 01, sync mismatch, mode != 2, .bin
-    not a multiple of 2352, non-zero Form 2, or Form 2 at sector 16+.
+    not a multiple of 2352, or mismatched XA subheader copies.
     """
     src, cue_path = _resolve_pair(source)
     bin_name, start_sector = _parse_cue(cue_path)
@@ -323,9 +389,14 @@ def normalize_ps1_bincue(source) -> ByteView:
     # structural red (verify.py wraps normalize_fn in try/except) rather
     # than a check-4 fidelity error mid-read. The user stream is NOT
     # materialized — these reads are discarded immediately.
+    forms = bytearray(n_data)
     for i in range(n_data):
         abs_sec = start_sector + i
         raw = src.read_at(abs_sec * SECTOR, SECTOR)
-        _validate_mode2_sector(raw, abs_sec)
+        *_metadata, form = _validate_mode2_sector(raw, abs_sec)
+        forms[i] = form
 
-    return ByteView(source=_Mode2RemapSource(src, start_sector, n_data), format="ps1-bincue")
+    return ByteView(
+        source=Mode2XASource(src, start_sector, n_data, bytes(forms)),
+        format="ps1-bincue",
+    )

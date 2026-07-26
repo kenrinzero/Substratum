@@ -16,7 +16,7 @@ Sector layout (ECMA-130 / Yellow Book Mode 1):
   [2076:2352) ECC      (276 bytes)
   total = 12+4+2048+4+8+276 = 2352 bytes
 
-This is the Mode 1 sibling of `ps1_bincue` (which handles Mode 2 Form 1
+This is the Mode 1 sibling of `ps1_bincue` (which handles Mode 2 XA
 XA). Saturn and DC both store 2048-byte user data inside 2352-byte raw
 Mode 1 sectors; the difference is the absence of the 8-byte XA subheader
 and the mode byte (1 vs 2). The whole file is one contiguous data track —

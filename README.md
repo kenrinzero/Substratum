@@ -16,13 +16,15 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.7 (2026-07-26): the interface and manifest schema remain
+Version 0.0.8 (2026-07-26): the interface and manifest schema remain
 frozen, the public one-layer dispatcher is live, and eight real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, and `xdvdfs`. Every unit runs
 through the same four-check structural, manifest, round-trip, and
 byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
-per-test peak-RSS guard.
+per-test peak-RSS guard. `ps1-bincue` additionally preserves general
+Mode-2 Form-2 payloads through its public sector API while retaining the
+fixed 2048-byte cooked view needed for ISO9660 LBA composition.
 
 The two keyed-platform families (`wii partitions` and `3ds ncch-cia`)
 remain deliberately deferred. See `NORMALIZERS.md` for exact format
@@ -44,6 +46,22 @@ tree = normalize("archive.arc", format="wii-u8-arc")
 
 `normalize()` never recurses. Container and raw-sector decoders return a
 `ByteView`; filesystem/archive walkers return a `FileTree`.
+
+For a mixed PS1 XA BIN/CUE, ordinary reads keep ISO LBAs stable and the
+format-specific source exposes complete sector payloads:
+
+```python
+from substratum.formats.ps1_bincue import Mode2XASource
+
+view = normalize("game.bin", format="ps1-bincue")
+assert isinstance(view.source, Mode2XASource)
+sector = view.source.read_sector(1234)
+print(sector.form, len(sector.payload), sector.channel_number)
+```
+
+Form-1 payloads are 2048 bytes; Form-2 payloads are 2324 bytes. Substratum
+does not decode XA audio/video codecs—the encoded payload and its file,
+channel, submode, and coding fields are the normalization boundary.
 
 ## Installation posture
 
