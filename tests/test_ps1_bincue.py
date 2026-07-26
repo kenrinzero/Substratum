@@ -60,6 +60,8 @@ FORM2_RETAIL_BIN = (
     / "BursTrick - Wake Boarding!! (USA).bin"
 )
 FORM2_RETAIL_CUE = FORM2_RETAIL_BIN.with_suffix(".cue")
+FORM2_RETAIL_FIXTURE = ROOT / "fixtures" / "ps1_bincue" / "burstrick"
+FORM2_RETAIL_REFERENCE = FORM2_RETAIL_FIXTURE / "reference"
 FORM2_RETAIL_BIN_SHA256 = (
     "21f02044173b2298199fb3d0adf1673520a3b044fd61e7f0b7b1f30a0b90ce40"
 )
@@ -82,6 +84,12 @@ RETAIL_TOOLS = {
     "pycdlib": "1.16.0",
     "generator": "stage_ps1_retail_anchor v1",
 }
+FORM2_RETAIL_TOOLS = {
+    "7z": "7-Zip 26.02 (x64) 2026-06-25",
+    "chdman": "0.288 (mame0288)",
+    "pycdlib": "1.16.0",
+    "generator": "stage_ps1_form2_retail_anchor v1",
+}
 
 skip_if_no_retail_anchor = pytest.mark.skipif(
     not RETAIL_BIN.exists() or not RETAIL_REFERENCE.exists(),
@@ -90,6 +98,10 @@ skip_if_no_retail_anchor = pytest.mark.skipif(
 skip_if_no_form2_retail = pytest.mark.skipif(
     not FORM2_RETAIL_BIN.exists() or not FORM2_RETAIL_CUE.exists(),
     reason="BursTrick mixed-XA retail BIN/CUE absent",
+)
+skip_if_no_form2_retail_anchor = pytest.mark.skipif(
+    not FORM2_RETAIL_BIN.exists() or not FORM2_RETAIL_REFERENCE.exists(),
+    reason="BursTrick retail BIN/CUE or gitignored reference extraction absent",
 )
 
 
@@ -480,6 +492,46 @@ def test_kings_field_identity_and_form2_scope():
     paths = {entry.path for entry in tree.entries}
     assert {"LICENSEJ.DAT", "PSX.EXE"} <= paths
     assert len(tree.entries) == 470
+
+
+def test_burstrick_metadata_manifest_is_valid():
+    """Committed mixed-XA metadata remains useful without the retail bytes."""
+    schema = json.loads((ROOT / "schema" / "manifest.schema.json").read_text("utf-8"))
+    doc = json.loads(
+        (FORM2_RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+    jsonschema.Draft202012Validator(schema).validate(doc)
+    assert doc["format"] == "ps1-bincue"
+    assert doc["source"] == {
+        "name": "BursTrick - Wake Boarding!! (USA).bin",
+        "sha256": "293af0bc2523225c31940b6af3b62109c1063213a2fd891b3fd927e2281db7bd",
+        "size": 322_039_808,
+    }
+    assert doc["tool_versions"] == FORM2_RETAIL_TOOLS
+    assert len(doc["entries"]) == 9
+    assert {
+        "SLUS_013.17",
+        "SYSTEM.CNF",
+        "XA/SOTOMAWA.XA",
+        "XA/STAGEBGM.XA",
+    } <= {entry["path"] for entry in doc["entries"]}
+
+
+@skip_if_no_form2_retail_anchor
+def test_burstrick_retail_anchor_is_green():
+    """The Archive-matched mixed-XA anchor passes the complete four-check gate."""
+    expected = json.loads(
+        (FORM2_RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+    assert run_checks(
+        _normalize_ps1_to_tree,
+        FORM2_RETAIL_BIN,
+        FORM2_RETAIL_FIXTURE / "expected.manifest.json",
+        FORM2_RETAIL_REFERENCE,
+        FORM2_RETAIL_BIN.name,
+        expected["source"]["sha256"],
+        FORM2_RETAIL_TOOLS,
+    ) == []
 
 
 @skip_if_no_form2_retail

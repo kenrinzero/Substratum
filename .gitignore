@@ -19,6 +19,7 @@ fixtures/gc_fst/nested/game.iso
 # PS1 retail anchor: independent 7-Zip reference extraction stays local;
 # only the metadata manifest and provenance are committed.
 fixtures/ps1_bincue/kings-field/reference/
+fixtures/ps1_bincue/burstrick/reference/
 # PSP retail anchor: independent 7-Zip reference extraction stays local;
 # only the metadata manifest and provenance are committed.
 fixtures/cso/ape-escape/reference/
