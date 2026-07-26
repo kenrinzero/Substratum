@@ -22,7 +22,9 @@ normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, and `xdvdfs`. Every unit runs
 through the same four-check structural, manifest, round-trip, and
 byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
-per-test peak-RSS guard. `ps1-bincue` additionally preserves general
+per-test peak-RSS guard. `iso9660` refuses traversal-capable path
+components and directory records that overrun an extent or logical block.
+`ps1-bincue` additionally preserves general
 Mode-2 Form-2 payloads through its public sector API while retaining the
 fixed 2048-byte cooked view needed for ISO9660 LBA composition.
 `saturn-dc-raw` is anchored by the GPL-3.0 Save Game Copier 3.7.1
