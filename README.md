@@ -22,9 +22,9 @@ normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, and `xdvdfs`. Every unit runs
 through the same four-check structural, manifest, round-trip, and
 byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
-per-test peak-RSS guard. `iso9660` and `gc-fst` refuse traversal-capable
-path components; ISO9660 also refuses directory records that overrun an
-extent or logical block.
+per-test peak-RSS guard. `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
+traversal-capable path components; ISO9660 also refuses directory records
+that overrun an extent or logical block.
 `ps1-bincue` additionally preserves general
 Mode-2 Form-2 payloads through its public sector API while retaining the
 fixed 2048-byte cooked view needed for ISO9660 LBA composition.
