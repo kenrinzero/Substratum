@@ -61,9 +61,11 @@ independently verifies both signed partitions and authors their boundaries.
 Qualified local retail anchors have split the remaining keyed-platform work
 into honest one-layer units. Wii partition AES-CBC decoding is prepared but
 waits on a caller-supplied local common-key file; the decrypted Wii FST follows
-that ByteView. Encrypted/seeded NCCH and CIA remain deferred. See
-`NORMALIZERS.md` for exact format bounds, fixture provenance, proof tools, and
-the dispatch order.
+that ByteView. This keyed work is intentionally deferred; see
+[`docs/WII-KEYED-WORK.md`](docs/WII-KEYED-WORK.md) for the exact local artifact,
+safe extraction/storage steps, and the resume checklist. Encrypted/seeded NCCH
+and CIA remain deferred. See `NORMALIZERS.md` for exact format bounds, fixture
+provenance, proof tools, and the dispatch order.
 
 ## Use
 
