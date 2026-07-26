@@ -14,14 +14,13 @@ the structural anchor:
      data files, an empty file, a nested dir, an incompressible blob.
      The 2048-byte-sector ISO is the user-data truth (and the
      byte-differential the normalizer is checked against).
-  2. The seedtool wraps each 2048-byte block into a 2352-byte Mode 1 raw
-     sector (sync + BCD address header[mode=1] + user + EDC + reserved
-     + ECC). Writes `game_2352.bin` — the whole file is one contiguous
-     data track, no `.cue`.
-  3. 7-Zip `l -slt -tiso` on the remapped inner stream (we strip the
-     raw ourselves, stdlib) confirms the recovered 2048 stream is a
-     real ISO — a third-party confirmation the hand-authored raw
-     structure is valid, not a fixture only the normalizer parses. The
+  2. Pinned UNECM reconstructs each 2048-byte block as a complete
+     2352-byte Mode 1 sector. Pinned ECM independently requires every
+     sector to have valid EDC/P-Q ECC, with zero literal sectors, and
+     round-trips the raw bytes. Writes `game_2352.bin` — the whole file
+     is one contiguous data track, no `.cue`.
+  3. 7-Zip `l -slt -tiso` on the remapped inner stream confirms the
+     recovered 2048 stream is a real ISO. The
      temp ISO is discarded; it is the acceptance that matters.
   4. 7-Zip extracts the inner ISO's file tree to `reference/` (the
      byte-fidelity substrate verify.py's check 4 reads through the
@@ -45,12 +44,11 @@ committed together.
 
 import hashlib
 import io
+import json
 import re
 import shutil
-import struct
 import subprocess
 import sys
-import zlib
 from importlib.metadata import version as dist_version
 from pathlib import Path
 
@@ -58,9 +56,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pycdlib
 
+from seedtools.stage_saturn_homebrew_anchor import (
+    ECM_TOOL_VERSION,
+    build_valid_mode1_raw,
+)
 from substratum.contract import FileEntry, FileSource, FileTree, canonical_manifest, sha256_of
 
-GENERATOR = "make_saturn_dc_raw_fixture v1"
+GENERATOR = "make_saturn_dc_raw_fixture v2"
 TOOL_TIMEOUT_SECONDS = 300
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,14 +78,6 @@ ECC_LEN = 276
 USER_START = SYNC_LEN + HEADER_LEN  # 16
 USER_END = USER_START + USER_LEN  # 2064
 assert SYNC_LEN + HEADER_LEN + USER_LEN + EDC_LEN + RESERVED_LEN + ECC_LEN == SECTOR_SIZE
-
-SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
-
-
-def _bcd(n: int) -> int:
-    """One-byte BCD: tens nibble << 4 | ones nibble (max 99)."""
-    return ((n // 10) << 4) | (n % 10)
-
 
 def _blob(tag: bytes, size: int) -> bytes:
     """Deterministic pseudo-random payload (sha256 chain — stable across
@@ -181,48 +175,9 @@ def sevenzip_version() -> str:
     return f"7-Zip {m.group(1)} ({m.group(2)}) {m.group(3)}"
 
 
-def wrap_sector(user: bytes, index: int) -> bytes:
-    """Wrap a 2048-byte user block into a 2352-byte Mode 1 raw sector
-    (sync + BCD address header[mode=1] + user + EDC + reserved + ECC).
-
-    EDC is the real CRC-32 over [12, 2064) of the sector
-    (header + user; the sync is excluded per ECMA-130 § 7.2 — note the
-    spec's parenthetical "[0, 2064)" is a slip; the correct Mode 1 EDC
-    covers the header too, which begins at offset 12). ECC and the 8-byte
-    reserved field are zero-filled: the normalizer only slices user
-    bytes, and the byte-fidelity gate is pycdlib's ISO content (which is
-    independent of EDC/ECC/reserved zeros).
-    """
-    frame = index % 75
-    second = (index // 75) % 60
-    minute = index // (75 * 60)
-    header = bytes([_bcd(minute), _bcd(second), _bcd(frame), 0x01])  # mode = 1
-    pre_edc = SYNC + header + user  # 12+4+2048 = 2064 bytes ([0, 2064))
-    edc = struct.pack("<I", zlib.crc32(pre_edc[SYNC_LEN:]) & 0xFFFFFFFF)  # over [12, 2064)
-    reserved = b"\x00" * RESERVED_LEN
-    ecc = b"\x00" * ECC_LEN
-    assert len(pre_edc) + len(edc) + len(reserved) + len(ecc) == SECTOR_SIZE
-    return pre_edc + edc + reserved + ecc
-
-
 def author_bin(iso_path: Path, bin_path: Path) -> int:
-    """Wrap the inner ISO's user data into raw Mode 1 sectors and write
-    `game_2352.bin` (single data track, no cue). Returns the sector count.
-
-    Reading the inner ISO block-by-block and wrapping each block is the
-    exact operation the normalizer under test must invert (and prove
-    byte-exact via the gate's fidelity check)."""
-    data = iso_path.read_bytes()
-    if len(data) % USER_LEN != 0:
-        raise SystemExit(f"inner ISO {iso_path} is not 2048-aligned ({len(data)} bytes)")
-    n_sectors = len(data) // USER_LEN
-
-    chunks = []
-    for i in range(n_sectors):
-        user = data[i * USER_LEN : (i + 1) * USER_LEN]
-        chunks.append(wrap_sector(user, i))
-
-    bin_path.write_bytes(b"".join(chunks))
+    """Have pinned UNECM author complete raw sectors and ECM verify them."""
+    n_sectors, _raw_sha = build_valid_mode1_raw(iso_path, bin_path)
     return n_sectors
 
 
@@ -298,6 +253,7 @@ def main() -> None:
     entries = entries_from_pycdlib(iso_path)
     tools = {
         "7z": sevenzip_version(),
+        "ecm": ECM_TOOL_VERSION,
         "pycdlib": dist_version("pycdlib"),
         "generator": GENERATOR,
     }
@@ -313,5 +269,41 @@ def main() -> None:
     )
 
 
+def rewrap_existing() -> None:
+    """Upgrade the committed carrier without regenerating timestamped ISO bytes."""
+    out = ROOT / "fixtures" / "saturn_dc_raw" / "synthetic"
+    iso_path = out / "synthetic.iso"
+    bin_path = out / "game_2352.bin"
+    manifest_path = out / "expected.manifest.json"
+    if not iso_path.is_file() or not manifest_path.is_file():
+        raise SystemExit("committed synthetic ISO/manifest is absent")
+
+    n_sectors = author_bin(iso_path, bin_path)
+    remap_anchor(bin_path, n_sectors)
+    manifest = json.loads(manifest_path.read_text("ascii"))
+    manifest["tool_versions"]["ecm"] = ECM_TOOL_VERSION
+    manifest["tool_versions"]["generator"] = GENERATOR
+    manifest_path.write_bytes(
+        (
+            json.dumps(
+                manifest,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("ascii")
+    )
+    print(
+        f"rewrapped {bin_path} as {n_sectors} independently verified Mode-1 sectors; "
+        f"raw sha256 {sha256_of(bin_path)}"
+    )
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--rewrap-existing"]:
+        rewrap_existing()
+    elif sys.argv[1:]:
+        raise SystemExit("usage: make_saturn_dc_raw_fixture.py [--rewrap-existing]")
+    else:
+        main()

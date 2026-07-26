@@ -12,7 +12,8 @@ seedtools/make_saturn_dc_raw_fixture.py from pycdlib's records (second
 independent reader, never the parser under test); reference bytes are
 7-Zip's extraction of the inner ISO (the byte-fidelity substrate). Tool
 pins include 7-Zip 26.02 (structural anchor) and pycdlib 1.16.0 (byte
-differential).
+differential). The GPL-3.0 Save Game Copier 3.7.1 fixture adds a
+third-party-authored ISO and ECM/UNECM-verified real EDC/ECC sectors.
 """
 
 import json
@@ -32,6 +33,10 @@ FIXTURE = ROOT / "fixtures" / "saturn_dc_raw" / "synthetic"
 BIN = FIXTURE / "game_2352.bin"
 ISO = FIXTURE / "synthetic.iso"
 REFERENCE = FIXTURE / "reference"
+HOMEBREW = ROOT / "fixtures" / "saturn_dc_raw" / "save-game-copier-3.7.1"
+HOMEBREW_BIN = HOMEBREW / "game_2352.bin"
+HOMEBREW_ISO = HOMEBREW / "game.iso"
+HOMEBREW_REFERENCE = HOMEBREW / "reference"
 # A sibling unit's fixture: proves the Mode 1 sniff rejects Mode 2 raw.
 PS1_BIN = ROOT / "fixtures" / "ps1_bincue" / "synthetic" / "game.bin"
 
@@ -40,8 +45,15 @@ PS1_BIN = ROOT / "fixtures" / "ps1_bincue" / "synthetic" / "game.bin"
 # expected manifest and fails check 2 loudly.
 TOOLS = {
     "7z": "7-Zip 26.02 (x64) 2026-06-25",
+    "ecm": "ECM/UNECM v1.3.0 (v1.3.1 release asset)",
     "pycdlib": "1.16.0",
-    "generator": "make_saturn_dc_raw_fixture v1",
+    "generator": "make_saturn_dc_raw_fixture v2",
+}
+HOMEBREW_TOOLS = {
+    "7z": "7-Zip 26.02 (x64) 2026-06-25",
+    "ecm": "ECM/UNECM v1.3.0 (v1.3.1 release asset)",
+    "generator": "stage_saturn_homebrew_anchor v1",
+    "pycdlib": "1.16.0",
 }
 
 
@@ -55,15 +67,23 @@ def _normalize_saturn_to_tree(source):
     return FileTree(source=tree.source, format="saturn-dc-raw", entries=tree.entries)
 
 
-def _checks(fixture=BIN):
+def _checks(
+    fixture=BIN,
+    *,
+    expected=FIXTURE / "expected.manifest.json",
+    reference=REFERENCE,
+    source_name="game_2352.bin",
+    source_sha256=None,
+    tools=TOOLS,
+):
     return run_checks(
         _normalize_saturn_to_tree,
         fixture,
-        FIXTURE / "expected.manifest.json",
-        REFERENCE,
-        "game_2352.bin",
-        sha256_of(ISO),  # decoded inner stream == synthetic.iso sha256
-        TOOLS,
+        expected,
+        reference,
+        source_name,
+        source_sha256 or sha256_of(ISO),
+        tools,
     )
 
 
@@ -73,6 +93,49 @@ def _checks(fixture=BIN):
 def test_saturn_dc_raw_is_green():
     """The full four-check gate passes on the Saturn/Dreamcast raw fixture."""
     assert _checks() == []
+
+
+def test_save_game_copier_homebrew_is_green():
+    """The licensed third-party anchor passes the complete four-check gate."""
+    assert _checks(
+        HOMEBREW_BIN,
+        expected=HOMEBREW / "expected.manifest.json",
+        reference=HOMEBREW_REFERENCE,
+        source_sha256=sha256_of(HOMEBREW_ISO),
+        tools=HOMEBREW_TOOLS,
+    ) == []
+
+
+def test_save_game_copier_raw_proof_is_pinned_and_byte_exact():
+    """The ECM-verified raw artifact decodes exactly to the upstream ISO."""
+    assert HOMEBREW_BIN.stat().st_size == 969_024
+    assert sha256_of(HOMEBREW_BIN) == (
+        "8392e7d6f6e9606ba91b502191dc0ee9972fbd729e41697c26a098e35f7a239e"
+    )
+    assert HOMEBREW_ISO.stat().st_size == 843_776
+    assert sha256_of(HOMEBREW_ISO) == (
+        "e1832e07d4e8273f0db45bcd61fbacffac21468554f87c328619a66a5f4871a8"
+    )
+    assert sha256_of(HOMEBREW / "LICENSE") == (
+        "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    )
+    view = normalize_saturn_dc_raw(HOMEBREW_BIN)
+    assert view.source.read_at(0, view.source.size()) == HOMEBREW_ISO.read_bytes()
+
+    first = HOMEBREW_BIN.read_bytes()[: raw_module.SECTOR]
+    assert first[:16] == bytes.fromhex("00ffffffffffffffffffff0000020001")
+    assert first[2068:2076] == b"\x00" * 8
+    assert any(first[2076:])  # independently reconstructed P/Q ECC is present
+
+
+def test_synthetic_carrier_has_real_error_correction():
+    """The small layout fixture also carries ECM-accepted EDC and P/Q ECC."""
+    assert sha256_of(BIN) == (
+        "d046ac95bfef5fc90922413f804f24975ece791d3167b8504f055b361a18ef76"
+    )
+    first = BIN.read_bytes()[: raw_module.SECTOR]
+    assert first[2068:2076] == b"\x00" * 8
+    assert any(first[2076:])
 
 
 def test_sniff():

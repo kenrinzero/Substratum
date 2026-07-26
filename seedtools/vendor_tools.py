@@ -15,6 +15,10 @@ Tool choices (researched 2026-07-17):
   carries sizes+offsets (dolphin-tool --list prints bare names), it has a
   real `wit version` command, and the cygwin64 zip is self-contained
   (dolphin-tool needs the VC++ 2022 redistributable).
+- ECM/UNECM: the v1.3.1 Windows release asset (GPL-2.0) supplies an
+  independent Mode-1 EDC/ECC reconstructor and verifier. The release
+  binaries intentionally report v1.3.0; both the asset and executable
+  bytes are pinned so that upstream packaging mismatch cannot drift.
 
 First run prints any sha256 marked TOFU (trust-on-first-use) so it can be
 pinned into this file; a later run on drifted bytes then fails loudly.
@@ -62,6 +66,15 @@ MAXCSO_URL = (
 MAXCSO_7Z_SHA256 = "51362619adbb8d219af11321b56b16d4912184203c0127a1b51566c7d151df4d"
 MAXCSO_EXE_SHA256 = "05f90b74c4ccdb48f93f9e4c51cc96eb959fd7596d79ba80cf6d8008495fadfb"
 MAXCSO_BANNER = "maxcso v1.13.0"
+
+ECM_RELEASE = "v1.3.1"
+ECM_ZIP = "ecm_1.3.1_windows_amd64.zip"
+ECM_URL = f"https://github.com/kidoz/ecm/releases/download/{ECM_RELEASE}/{ECM_ZIP}"
+ECM_ZIP_SHA256 = "c480d5535580cd776cc4b7928cc77d02919b1d1ff19adb45f600a82ff83823a4"
+ECM_EXE_SHA256 = "1d5e5eef9bbaa84cd32dd4a4eacd9a6274e66a5a2e09c5804e4b4c6264ec9819"
+UNECM_EXE_SHA256 = "eda85f9a7b49dd55d918bce80b862a69650a0f7497b94c89b0fa8f395228d545"
+ECM_BANNER = "ECM - Encoder for Error Code Modeler format v1.3.0"
+UNECM_BANNER = "UNECM - Decoder for Error Code Modeler format v1.3.0"
 
 DOWNLOAD_TIMEOUT_SECONDS = 60
 TOOL_TIMEOUT_SECONDS = 300
@@ -206,6 +219,56 @@ def vendor_maxcso() -> None:
     arc.unlink()
 
 
+def vendor_ecm() -> None:
+    tool_dir = TOOLS / "ecm"
+    ecm_exe = tool_dir / "ecm.exe"
+    unecm_exe = tool_dir / "unecm.exe"
+    if ecm_exe.exists() or unecm_exe.exists():
+        if not (ecm_exe.exists() and unecm_exe.exists()):
+            raise SystemExit("tools/ecm is incomplete; expected ecm.exe and unecm.exe")
+        check_pin(ecm_exe, ECM_EXE_SHA256, "ecm exe")
+        check_pin(unecm_exe, UNECM_EXE_SHA256, "unecm exe")
+        ecm_banner = run_banner([str(ecm_exe)])
+        unecm_banner = run_banner([str(unecm_exe)])
+        if ecm_banner != ECM_BANNER or unecm_banner != UNECM_BANNER:
+            raise SystemExit(
+                "tools/ecm banners are unexpected: "
+                f"{ecm_banner!r}; {unecm_banner!r}"
+            )
+        print(f"ecm already vendored: {ecm_banner}; {unecm_banner}")
+        return
+
+    DL.mkdir(parents=True, exist_ok=True)
+    arc = DL / ECM_ZIP
+    fetch(ECM_URL, arc)
+    check_pin(arc, ECM_ZIP_SHA256, "ecm zip")
+
+    tool_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(arc) as z:
+        members = {Path(info.filename).name: info for info in z.infolist()}
+        for name in ("ecm.exe", "unecm.exe"):
+            info = members.get(name)
+            if info is None or info.is_dir():
+                raise SystemExit(f"{name} not found in ECM release zip")
+            (tool_dir / name).write_bytes(z.read(info))
+
+    check_pin(ecm_exe, ECM_EXE_SHA256, "ecm exe")
+    check_pin(unecm_exe, UNECM_EXE_SHA256, "unecm exe")
+    ecm_banner = run_banner([str(ecm_exe)])
+    unecm_banner = run_banner([str(unecm_exe)])
+    if ecm_banner != ECM_BANNER or unecm_banner != UNECM_BANNER:
+        raise SystemExit(
+            "extracted ECM banners are unexpected: "
+            f"{ecm_banner!r}; {unecm_banner!r}"
+        )
+    print(
+        f"ecm OK: {ecm_banner}; {unecm_banner}\n"
+        f"  exe sha256 {sha256_of(ecm_exe)}\n"
+        f"  unecm sha256 {sha256_of(unecm_exe)}"
+    )
+    arc.unlink()
+
+
 def main() -> None:
     which = set(sys.argv[1:]) or {"chdman", "wit"}
     if "chdman" in which:
@@ -214,6 +277,8 @@ def main() -> None:
         vendor_wit()
     if "maxcso" in which:
         vendor_maxcso()
+    if "ecm" in which:
+        vendor_ecm()
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from seedtools import vendor_tools
+from seedtools import stage_saturn_homebrew_anchor, vendor_tools
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,6 +37,8 @@ def test_vendored_executable_pins_are_complete_sha256_values():
         vendor_tools.CHDMAN_EXE_SHA256,
         vendor_tools.WIT_EXE_SHA256,
         vendor_tools.MAXCSO_EXE_SHA256,
+        vendor_tools.ECM_EXE_SHA256,
+        vendor_tools.UNECM_EXE_SHA256,
     )
     assert len(set(pins)) == len(pins)
     assert all(re.fullmatch(r"[0-9a-f]{64}", pin) for pin in pins)
@@ -51,3 +53,19 @@ def test_check_pin_rejects_byte_drift(tmp_path):
     tool.write_bytes(b"drifted bytes")
     with pytest.raises(SystemExit, match="sha256 drift"):
         vendor_tools.check_pin(tool, exact, "test tool")
+
+
+def test_saturn_stager_ecm_record_encoding_and_address_origin():
+    assert stage_saturn_homebrew_anchor._encode_type_count(1, 411) == b"\xed\x0c"
+    assert stage_saturn_homebrew_anchor._encode_type_count(
+        0, 0xFFFFFFFF
+    ) == bytes.fromhex("fcffffff3f")
+    assert stage_saturn_homebrew_anchor._address_for_lba(0) == bytes.fromhex(
+        "000200"
+    )
+
+
+def test_ecm_release_asset_and_binary_banner_versions_are_both_explicit():
+    assert vendor_tools.ECM_RELEASE == "v1.3.1"
+    assert vendor_tools.ECM_BANNER.endswith("v1.3.0")
+    assert vendor_tools.UNECM_BANNER.endswith("v1.3.0")
