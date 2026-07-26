@@ -20,6 +20,14 @@ from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 SYN = ROOT / "fixtures" / "iso9660" / "synthetic"
+RETAIL_FIXTURE = ROOT / "fixtures" / "iso9660" / "gallop-racer-2001"
+RETAIL_ISO = (
+    ROOT
+    / "fixtures"
+    / "_local"
+    / "Gallop Racer 2001 (USA)"
+    / "Gallop Racer 2001 (USA).iso"
+)
 
 # pinned at unit time (recorded in NORMALIZERS.md row; re-authoring on a
 # drifted tool changes the expected manifest and fails check 2 loudly)
@@ -28,6 +36,20 @@ TOOLS = {
     "pycdlib": "1.16.0",
     "generator": "make_iso_fixture v1",
 }
+RETAIL_TOOLS = {
+    "7z": "7-Zip 26.02 (x64) 2026-06-25",
+    "pycdlib": "1.16.0",
+    "generator": "stage_iso9660_retail_anchor v1",
+}
+RETAIL_SIZE = 790_986_752
+RETAIL_SHA256 = (
+    "d0b02a886a77491f5636c5bce4f163d6c7922ff23b8ce57e208f6a56a18d2a64"
+)
+
+skip_if_no_retail_anchor = pytest.mark.skipif(
+    not RETAIL_ISO.exists() or not (RETAIL_FIXTURE / "reference").exists(),
+    reason="Gallop Racer 2001 retail ISO or gitignored reference extraction absent",
+)
 
 
 def checks(fixture=None):
@@ -51,7 +73,11 @@ def _staged_fixture_dirs():
     base = ROOT / "fixtures" / "iso9660"
     return sorted(
         d for d in base.iterdir()
-        if d.is_dir() and (d / "expected.manifest.json").exists()
+        if (
+            d.is_dir()
+            and (d / "expected.manifest.json").exists()
+            and any(d.glob("*.iso"))
+        )
     )
 
 
@@ -181,3 +207,63 @@ def test_zero_byte_file_reads_empty():
     tree = normalize_iso9660(SYN / "synthetic.iso")
     empty = next(e for e in tree.files() if e.path == "DATA/EMPTY.BIN")
     assert empty.size == 0 and tree.read(empty) == b""
+
+
+# --- gitignored retail-anchor proof ---------------------------------------
+
+
+def test_gallop_racer_metadata_manifest_is_valid():
+    """Committed metadata remains useful when the retail drop is absent."""
+    schema = json.loads((ROOT / "schema" / "manifest.schema.json").read_text("utf-8"))
+    doc = json.loads(
+        (RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+    jsonschema.Draft202012Validator(schema).validate(doc)
+    assert doc["format"] == "iso9660"
+    assert doc["source"] == {
+        "name": "Gallop Racer 2001 (USA).iso",
+        "sha256": RETAIL_SHA256,
+        "size": RETAIL_SIZE,
+    }
+    assert doc["tool_versions"] == RETAIL_TOOLS
+    assert {entry["path"] for entry in doc["entries"]} == {
+        "GR5.DAT",
+        "IOPRP214.IMG",
+        "IOPSYS.IRX",
+        "LIBSD.IRX",
+        "MCMAN.IRX",
+        "MCSERV.IRX",
+        "PADMAN.IRX",
+        "SIO2MAN.IRX",
+        "SLUS_202.55",
+        "SYSTEM.CNF",
+    }
+
+
+@skip_if_no_retail_anchor
+def test_gallop_racer_retail_anchor_is_green():
+    """The preservation-matched PS2 pressing passes the complete gate."""
+    assert run_checks(
+        normalize_iso9660,
+        RETAIL_ISO,
+        RETAIL_FIXTURE / "expected.manifest.json",
+        RETAIL_FIXTURE / "reference",
+        RETAIL_ISO.name,
+        RETAIL_SHA256,
+        RETAIL_TOOLS,
+    ) == []
+
+
+@skip_if_no_retail_anchor
+def test_gallop_racer_identity_and_fixity():
+    """The local image is the validated USA retail disc, not a rebuilt ISO."""
+    assert RETAIL_ISO.stat().st_size == RETAIL_SIZE
+    assert sha256_of(RETAIL_ISO) == RETAIL_SHA256
+    tree = normalize_iso9660(RETAIL_ISO)
+    by_path = {entry.path: entry for entry in tree.files()}
+    assert tree.read(by_path["SYSTEM.CNF"]) == (
+        b"BOOT2 = cdrom0:\\SLUS_202.55;1\n"
+        b"VER   = 1.00\n"
+        b"VMODE = NTSC\n"
+    )
+    assert by_path["SLUS_202.55"].size == 11_073_038

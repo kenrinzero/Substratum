@@ -23,4 +23,7 @@ fixtures/ps1_bincue/burstrick/reference/
 # PSP retail anchor: independent 7-Zip reference extraction stays local;
 # only the metadata manifest and provenance are committed.
 fixtures/cso/ape-escape/reference/
+# PS2 retail ISO anchor: independent 7-Zip reference extraction stays local;
+# only the metadata manifest and provenance are committed.
+fixtures/iso9660/gallop-racer-2001/reference/
 tools/
