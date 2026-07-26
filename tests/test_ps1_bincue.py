@@ -20,6 +20,7 @@ import jsonschema
 import pytest
 
 from substratum.contract import ByteView, FileSource, FileTree, sha256_of
+from substratum.formats import ps1_bincue as ps1_module
 from substratum.formats.ps1_bincue import (
     Mode2XASource,
     XASector,
@@ -174,6 +175,55 @@ def test_normalize_ps1_bincue_returns_byteview():
     assert view.source.sector_count() == ISO.stat().st_size // 2048
 
 
+def test_eager_validation_batches_raw_reads(monkeypatch):
+    """A full structural scan reads bounded batches, not one file-open per sector."""
+
+    class CountingFileSource(FileSource):
+        calls: list[tuple[int, int]] = []
+
+        def read_at(self, offset: int, size: int) -> bytes:
+            self.calls.append((offset, size))
+            return super().read_at(offset, size)
+
+    monkeypatch.setattr(ps1_module, "FileSource", CountingFileSource)
+    view = ps1_module.normalize_ps1_bincue(BIN)
+    expected_batches = (
+        view.source.sector_count() + ps1_module._RAW_BATCH_SECTORS - 1
+    ) // ps1_module._RAW_BATCH_SECTORS
+    assert len(CountingFileSource.calls) == expected_batches
+    assert max(size for _offset, size in CountingFileSource.calls) <= (
+        ps1_module._RAW_BATCH_SECTORS * ps1_module.SECTOR
+    )
+
+
+def test_cooked_reads_batch_raw_sectors():
+    """The cooked view preserves bytes while bounding underlying read calls."""
+
+    class CountingSource:
+        def __init__(self, path: Path):
+            self.inner = FileSource(path)
+            self.calls: list[tuple[int, int]] = []
+
+        def size(self) -> int:
+            return self.inner.size()
+
+        def read_at(self, offset: int, size: int) -> bytes:
+            self.calls.append((offset, size))
+            return self.inner.read_at(offset, size)
+
+    raw = CountingSource(BIN)
+    sector_count = raw.size() // ps1_module.SECTOR
+    source = Mode2XASource(raw, 0, sector_count, bytes([1]) * sector_count)
+    assert source.read_at(0, source.size()) == ISO.read_bytes()
+    expected_batches = (
+        sector_count + ps1_module._RAW_BATCH_SECTORS - 1
+    ) // ps1_module._RAW_BATCH_SECTORS
+    assert len(raw.calls) == expected_batches
+    assert max(size for _offset, size in raw.calls) <= (
+        ps1_module._RAW_BATCH_SECTORS * ps1_module.SECTOR
+    )
+
+
 def test_decoded_stream_byte_equal_inner_iso():
     """The decoded user-data stream is byte-identical to the inner ISO."""
     view = normalize_ps1_bincue(BIN)
@@ -245,6 +295,19 @@ def test_mode1_refused(tmp_path):
     bad_bin = _stage_pair(tmp_path, bytes(data))
     problems = _checks(bad_bin)
     assert_structural_failure(problems, "mode 1 != 2")
+
+
+def test_corruption_at_batch_boundary_reports_exact_sector(tmp_path):
+    """Batched validation retains absolute sector diagnostics."""
+    sector = ps1_module._RAW_BATCH_SECTORS
+    original = BIN.read_bytes()
+    original_sectors = len(original) // ps1_module.SECTOR
+    repeats = (sector + original_sectors) // original_sectors
+    data = bytearray(original * repeats)
+    data[sector * ps1_module.SECTOR] ^= 0xFF
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+    problems = _checks(bad_bin)
+    assert_structural_failure(problems, f"sector {sector} bad sync pattern")
 
 
 def test_zero_filled_form2_system_area_is_accepted(tmp_path):

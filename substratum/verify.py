@@ -57,6 +57,9 @@ def _first_diff(src, ref_path: Path, got_len: int, want_len: int):
                 # treat as a diff at the first missing byte — matches the
                 # eager path's behavior when the stream ends early
                 return pos + min(len(got_chunk), len(want_chunk))
+            if got_chunk == want_chunk:
+                pos += chunk_size
+                continue
             for i in range(chunk_size):
                 if got_chunk[i] != want_chunk[i]:
                     return pos + i

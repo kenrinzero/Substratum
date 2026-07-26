@@ -72,6 +72,7 @@ USER_LEN = 2048
 FORM2_USER_LEN = 2324
 EDC_LEN = 4
 ECC_LEN = 276
+_RAW_BATCH_SECTORS = 512  # 1,204,224 raw bytes; bounded near the 1 MiB gate chunk
 assert SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN + EDC_LEN + ECC_LEN == SECTOR
 
 SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
@@ -270,6 +271,14 @@ class Mode2XASource:
             return self._cache_sector
         abs_sec = self._start + index
         raw = self._raw.read_at(abs_sec * SECTOR, SECTOR)
+        sector = self._sector_from_raw(index, raw)
+        self._cache_i = index
+        self._cache_sector = sector
+        return sector
+
+    def _sector_from_raw(self, index: int, raw: bytes) -> XASector:
+        """Decode one pre-indexed raw sector without performing I/O."""
+        abs_sec = self._start + index
         file_number, channel_number, submode, coding_info, form = (
             _validate_mode2_sector(raw, abs_sec)
         )
@@ -289,8 +298,6 @@ class Mode2XASource:
             coding_info=coding_info,
             payload=bytes(raw[payload_start : payload_start + payload_len]),
         )
-        self._cache_i = index
-        self._cache_sector = sector
         return sector
 
     def read_at(self, offset: int, size: int) -> bytes:
@@ -301,11 +308,26 @@ class Mode2XASource:
         out = bytearray()
         pos, stop = offset, offset + size
         while pos < stop:
-            block = self.read_sector(pos // USER_LEN).payload
+            first_sector = pos // USER_LEN
             within = pos % USER_LEN
-            take = min(USER_LEN - within, stop - pos)
-            out += block[within : within + take]
-            pos += take
+            sectors_needed = (within + stop - pos + USER_LEN - 1) // USER_LEN
+            batch_count = min(_RAW_BATCH_SECTORS, sectors_needed)
+            raw_start = (self._start + first_sector) * SECTOR
+            raw_batch = self._raw.read_at(raw_start, batch_count * SECTOR)
+            for batch_index in range(batch_count):
+                sector_index = first_sector + batch_index
+                raw_offset = batch_index * SECTOR
+                raw = raw_batch[raw_offset : raw_offset + SECTOR]
+                sector = self._sector_from_raw(sector_index, raw)
+                self._cache_i = sector_index
+                self._cache_sector = sector
+                block = sector.payload
+                block_offset = within if batch_index == 0 else 0
+                take = min(USER_LEN - block_offset, stop - pos)
+                out += block[block_offset : block_offset + take]
+                pos += take
+                if pos == stop:
+                    break
         return bytes(out)
 
 
@@ -390,11 +412,17 @@ def normalize_ps1_bincue(source) -> ByteView:
     # than a check-4 fidelity error mid-read. The user stream is NOT
     # materialized — these reads are discarded immediately.
     forms = bytearray(n_data)
-    for i in range(n_data):
-        abs_sec = start_sector + i
-        raw = src.read_at(abs_sec * SECTOR, SECTOR)
-        *_metadata, form = _validate_mode2_sector(raw, abs_sec)
-        forms[i] = form
+    for batch_start in range(0, n_data, _RAW_BATCH_SECTORS):
+        batch_count = min(_RAW_BATCH_SECTORS, n_data - batch_start)
+        abs_start = start_sector + batch_start
+        raw_batch = src.read_at(abs_start * SECTOR, batch_count * SECTOR)
+        for batch_index in range(batch_count):
+            i = batch_start + batch_index
+            abs_sec = start_sector + i
+            raw_offset = batch_index * SECTOR
+            raw = raw_batch[raw_offset : raw_offset + SECTOR]
+            *_metadata, form = _validate_mode2_sector(raw, abs_sec)
+            forms[i] = form
 
     return ByteView(
         source=Mode2XASource(src, start_sector, n_data, bytes(forms)),

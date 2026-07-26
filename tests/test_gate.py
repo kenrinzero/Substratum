@@ -17,7 +17,7 @@ from substratum.contract import (
     canonical_manifest,
     sha256_of,
 )
-from substratum.verify import run_checks, sample_entries
+from substratum.verify import _FIDELITY_CHUNK, _first_diff, run_checks, sample_entries
 from tests.toyfs import (
     normalize_toy,
     normalize_toy_mutant_metadata,
@@ -115,3 +115,34 @@ def test_slice_source_bounds():
     assert sl.read_at(0, 4) == b"TOYF"
     with pytest.raises(ValueError, match="read out of slice bounds"):
         sl.read_at(2, 4)
+
+
+def test_first_diff_preserves_exact_offsets_across_chunk_boundaries(tmp_path):
+    """The bulk-equality fast path retains exact first-difference semantics."""
+    size = _FIDELITY_CHUNK * 2 + 17
+    reference = tmp_path / "reference.bin"
+    reference.write_bytes(b"\x00" * size)
+
+    equal = tmp_path / "equal.bin"
+    equal.write_bytes(b"\x00" * size)
+    equal_source = FileSource(equal)
+    assert _first_diff(equal_source, reference, size, size) is None
+
+    for offset in (
+        0,
+        _FIDELITY_CHUNK - 1,
+        _FIDELITY_CHUNK,
+        _FIDELITY_CHUNK + 1,
+        size - 1,
+    ):
+        different = tmp_path / f"different-{offset}.bin"
+        with different.open("wb") as fh:
+            fh.truncate(size)
+        with different.open("r+b") as fh:
+            fh.seek(offset)
+            fh.write(b"\x01")
+        assert _first_diff(FileSource(different), reference, size, size) == offset
+
+    shorter = tmp_path / "shorter.bin"
+    shorter.write_bytes(b"\x00" * (size - 1))
+    assert _first_diff(FileSource(shorter), reference, size - 1, size) == size - 1
