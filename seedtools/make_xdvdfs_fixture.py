@@ -77,7 +77,7 @@ def _serialize_directory_table(entries: list[EntrySpec], table_size: int, entry_
 
 def build_image() -> tuple[bytes, list[FileEntry]]:
     directories = {
-        "root": [EntrySpec("BOOT", True, _DIR_ATTR), EntrySpec("DATA", True, _DIR_ATTR), EntrySpec("README.TXT", False, 0x20)],
+        "root": [EntrySpec("DATA", True, _DIR_ATTR), EntrySpec("BOOT", True, _DIR_ATTR), EntrySpec("README.TXT", False, 0x20)],
         "BOOT": [EntrySpec("APP.BIN", False, 0x20)],
         "DATA": [EntrySpec("A.BIN", False, 0x20), EntrySpec("B.BIN", False, 0x20), EntrySpec("EMPTY.BIN", False, 0x20), EntrySpec("SUB", True, _DIR_ATTR)],
         "DATA/SUB": [EntrySpec("C.DAT", False, 0x20)],
@@ -133,9 +133,12 @@ def build_image() -> tuple[bytes, list[FileEntry]]:
         entry.start_sector = payload_offsets["DATA/SUB/C.DAT"][0]
         entry.size = len(FILES["DATA/SUB/C.DAT"])
 
-    directories["root"][0].r_offset = 0x20 // 4
+    # Balanced root: DATA has a valid left child (BOOT) and right sibling
+    # (README), forcing both LCRS branches through the green fixture.
+    directories["root"][0].l_offset = 0x20 // 4
+    directories["root"][0].r_offset = 0x40 // 4
     directories["root"][1].l_offset = 0
-    directories["root"][1].r_offset = 0x40 // 4
+    directories["root"][1].r_offset = 0
     directories["root"][2].l_offset = 0
     directories["root"][2].r_offset = 0
 

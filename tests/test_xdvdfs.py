@@ -75,6 +75,33 @@ def test_composed_tree_matches_expected():
     assert got_paths == want_paths
 
 
+def test_fixture_exercises_valid_left_and_right_lcrs_branches():
+    """The root node must make both pointer branches load-bearing on green."""
+    with IMAGE.open("rb") as fh:
+        fh.seek(0x22 * 0x800)
+        table = fh.read(0x800)
+
+    left_dwords, right_dwords = struct.unpack_from("<HH", table, 0)
+    assert left_dwords != 0
+    assert right_dwords != 0
+
+    def name_at(dword_offset: int) -> str:
+        offset = dword_offset * 4
+        length = table[offset + 0x0D]
+        return table[offset + 0x0E : offset + 0x0E + length].decode("ascii")
+
+    assert name_at(0) == "DATA"
+    assert name_at(left_dwords) == "BOOT"
+    assert name_at(right_dwords) == "README.TXT"
+
+    top_level = [
+        entry.path
+        for entry in normalize_xdvdfs(IMAGE).entries
+        if "/" not in entry.path
+    ]
+    assert top_level == ["BOOT", "DATA", "README.TXT"]
+
+
 def test_expected_manifest_validates_against_schema():
     schema = json.loads((ROOT / "schema" / "manifest.schema.json").read_text("utf-8"))
     doc = json.loads((FIXTURE / "expected.manifest.json").read_text("ascii"))
@@ -108,7 +135,7 @@ def test_corrupted_magic_tail_refused(tmp_path):
 def test_bad_root_table_refused(tmp_path):
     bad = tmp_path / "bad-root.xiso"
     data = bytearray(IMAGE.read_bytes())
-    data[0x10000 + 0x14 : 0x10000 + 0x18] = b"\x00"
+    data[0x10000 + 0x14 : 0x10000 + 0x18] = b"\x00" * 4
     bad.write_bytes(bytes(data))
     with pytest.raises(ValueError, match="size"):
         normalize_xdvdfs(bad)
@@ -173,8 +200,9 @@ def test_bad_filename_refused(tmp_path):
         name_len = table[entry_offset + 0x0D]
         name = table[entry_offset + 0x0E : entry_offset + 0x0E + name_len].decode("ascii", "ignore")
         if name == "README.TXT":
-            data[table_offset + entry_offset + 0x0E : table_offset + entry_offset + 0x0E + len(name)] = b"bad/name"
-            data[table_offset + entry_offset + 0x0D] = len(b"bad/name")
+            invalid_name = b"bad/name!!"
+            assert len(invalid_name) == len(name)
+            data[table_offset + entry_offset + 0x0E : table_offset + entry_offset + 0x0E + len(name)] = invalid_name
             break
     else:
         pytest.fail("README.TXT entry not found")

@@ -96,6 +96,21 @@ def _walk_table(
     path = f"{prefix}/{name}" if prefix else name
     visited.add(entry_offset)
 
+    if l_offset != 0:
+        child_offset = l_offset * 4
+        if child_offset >= len(table):
+            raise ValueError(f"left child offset {l_offset} exceeds table size")
+        _walk_table(
+            src,
+            table,
+            child_offset,
+            prefix,
+            src_size,
+            entries,
+            visited,
+            dir_tables_seen,
+        )
+
     if attrs & _DIR_ATTR:
         if file_size == 0:
             raise ValueError(f"directory {name!r} has zero size")
@@ -113,6 +128,10 @@ def _walk_table(
             raise ValueError(f"file {name!r} range exceeds source size")
         entries.append(FileEntry(path=path, kind="file", offset=start_sector * _SECTOR, size=file_size))
 
+    if attrs & _DIR_ATTR:
+        subtable = src.read_at(nested_offset, file_size)
+        _walk_table(src, subtable, 0, path, src_size, entries, set(), dir_tables_seen)
+
     if r_offset != 0:
         if r_offset == _PAD_SHORT:
             return
@@ -122,16 +141,6 @@ def _walk_table(
         if sibling_offset >= len(table):
             raise ValueError(f"right sibling offset {r_offset} exceeds table size")
         _walk_table(src, table, sibling_offset, prefix, src_size, entries, visited, dir_tables_seen)
-
-    if l_offset != 0:
-        child_offset = l_offset * 4
-        if child_offset >= len(table):
-            raise ValueError(f"left child offset {l_offset} exceeds table size")
-        _walk_table(src, table, child_offset, prefix, src_size, entries, visited, dir_tables_seen)
-
-    if attrs & _DIR_ATTR:
-        subtable = src.read_at(nested_offset, file_size)
-        _walk_table(src, subtable, 0, path, src_size, entries, set(), dir_tables_seen)
 
 
 def normalize_xdvdfs(source) -> FileTree:
