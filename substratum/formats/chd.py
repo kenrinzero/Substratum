@@ -44,6 +44,7 @@ class _TempFileSource:
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
 _CHDMAN_REL = Path("tools") / "chdman" / "chdman.exe"
+_CHDMAN_TIMEOUT_SECONDS = 300
 
 
 def _chdman_exe() -> Path:
@@ -108,6 +109,7 @@ def normalize_chd(source) -> ByteView:
             ],
             capture_output=True,
             check=True,
+            timeout=_CHDMAN_TIMEOUT_SECONDS,
         )
         data_file = Path(str(out_base) + ".bin")
         if not data_file.exists():

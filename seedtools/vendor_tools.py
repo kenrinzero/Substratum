@@ -37,11 +37,15 @@ MAME_SFX = "mame0288b_x64.exe"
 MAME_URL = f"https://github.com/mamedev/mame/releases/download/mame0288/{MAME_SFX}"
 MAME_SUMS_URL = "https://github.com/mamedev/mame/releases/download/mame0288/SHA256SUMS"
 MAME_SFX_SHA256 = "e4ae20a2359d716fb16824961b1b0fb28d8662ffd1298504edff39d368bb4a55"
+CHDMAN_EXE_SHA256 = "1a919f7be4b94993da3fb543539d8affe3a7e64dd3a9f61c20992a1e4eebd9dd"
+CHDMAN_BANNER = "chdman - MAME Compressed Hunks of Data (CHD) manager 0.288 (mame0288)"
 
 WIT_VERSION = "v3.05a"
 WIT_ZIP = "wit-v3.05a-r8638-cygwin64.zip"
 WIT_URL = f"https://wit.wiimm.de/download/{WIT_ZIP}"
 WIT_ZIP_SHA256 = "049670558970f0cea2796d68e0ba1e48491474b5708bf12a95ab8a185f4e59c1"
+WIT_EXE_SHA256 = "46026c652117628a25882a9c2615844c5054e347ed5144bb78fbf8c8285e3e83"
+WIT_BANNER = "wit: Wiimms ISO Tool v3.05a r8638 cygwin64 - Dirk Clemens - 2022-08-27"
 
 # maxcso (prep row `vendor-maxcso`, NORMALIZERS.md row `cso`): the third-party
 # CISO author + `--decompress` round-trip anchor for the cso decode-layer unit.
@@ -56,6 +60,11 @@ MAXCSO_URL = (
     f"{MAXCSO_VERSION}/{MAXCSO_7Z}"
 )
 MAXCSO_7Z_SHA256 = "51362619adbb8d219af11321b56b16d4912184203c0127a1b51566c7d151df4d"
+MAXCSO_EXE_SHA256 = "05f90b74c4ccdb48f93f9e4c51cc96eb959fd7596d79ba80cf6d8008495fadfb"
+MAXCSO_BANNER = "maxcso v1.13.0"
+
+DOWNLOAD_TIMEOUT_SECONDS = 60
+TOOL_TIMEOUT_SECONDS = 300
 
 
 def sha256_of(path: Path) -> str:
@@ -69,14 +78,21 @@ def sha256_of(path: Path) -> str:
 def fetch(url: str, dest: Path) -> None:
     print(f"fetching {url} -> {dest.name}")
     req = urllib.request.Request(url, headers={"User-Agent": "substratum-vendor/1"})
-    with urllib.request.urlopen(req) as resp, dest.open("wb") as out:
+    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_SECONDS) as resp, dest.open("wb") as out:
         while chunk := resp.read(1 << 20):
             out.write(chunk)
     print(f"  {dest.stat().st_size} bytes, sha256 {sha256_of(dest)}")
 
 
 def run_banner(cmd: list[str]) -> str:
-    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=TOOL_TIMEOUT_SECONDS,
+    )
     return (p.stdout + p.stderr).strip().splitlines()[0] if (p.stdout + p.stderr).strip() else ""
 
 
@@ -91,9 +107,9 @@ def check_pin(path: Path, expected: str | None, what: str) -> None:
 def vendor_chdman() -> None:
     exe = TOOLS / "chdman" / "chdman.exe"
     if exe.exists():
+        check_pin(exe, CHDMAN_EXE_SHA256, "chdman exe")
         banner = run_banner([str(exe)])
-        m = re.search(r"manager (\d+\.\d+)", banner)
-        if m and m.group(1) == MAME_VERSION:
+        if banner == CHDMAN_BANNER:
             print(f"chdman already vendored: {banner}")
             return
         raise SystemExit(f"tools/chdman/chdman.exe exists but banner is wrong: {banner!r}")
@@ -115,10 +131,11 @@ def vendor_chdman() -> None:
     (TOOLS / "chdman").mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["7z", "e", str(sfx), "chdman.exe", f"-o{TOOLS / 'chdman'}", "-y"],
-        capture_output=True, check=True,
+        capture_output=True, check=True, timeout=TOOL_TIMEOUT_SECONDS,
     )
+    check_pin(exe, CHDMAN_EXE_SHA256, "chdman exe")
     banner = run_banner([str(exe)])
-    if not re.search(rf"manager {re.escape(MAME_VERSION)}\b", banner):
+    if banner != CHDMAN_BANNER:
         raise SystemExit(f"extracted chdman banner mismatch: {banner!r}")
     print(f"chdman OK: {banner}\n  exe sha256 {sha256_of(exe)}")
     sfx.unlink()  # 82 MB; the pins above re-fetch it if ever needed
@@ -128,8 +145,9 @@ def vendor_chdman() -> None:
 def vendor_wit() -> None:
     exe = TOOLS / "wit" / "wit.exe"
     if exe.exists():
+        check_pin(exe, WIT_EXE_SHA256, "wit exe")
         banner = run_banner([str(exe), "version"])
-        if WIT_VERSION in banner:
+        if banner == WIT_BANNER:
             print(f"wit already vendored: {banner}")
             return
         raise SystemExit(f"tools/wit/wit.exe exists but version is wrong: {banner!r}")
@@ -149,8 +167,9 @@ def vendor_wit() -> None:
                 kept += 1
     if not exe.exists():
         raise SystemExit("wit.exe not found in zip bin/")
+    check_pin(exe, WIT_EXE_SHA256, "wit exe")
     banner = run_banner([str(exe), "version"])
-    if WIT_VERSION not in banner:
+    if banner != WIT_BANNER:
         raise SystemExit(f"extracted wit version mismatch: {banner!r}")
     print(f"wit OK ({kept} files): {banner}\n  exe sha256 {sha256_of(exe)}")
     zpath.unlink()
@@ -158,10 +177,10 @@ def vendor_wit() -> None:
 
 def vendor_maxcso() -> None:
     exe = TOOLS / "maxcso" / "maxcso.exe"
-    ver = MAXCSO_VERSION.lstrip("v")
     if exe.exists():
+        check_pin(exe, MAXCSO_EXE_SHA256, "maxcso exe")
         banner = run_banner([str(exe), "--version"]) or run_banner([str(exe)])
-        if ver in banner or "maxcso" in banner.lower():
+        if banner == MAXCSO_BANNER:
             print(f"maxcso already vendored: {banner}")
             return
         raise SystemExit(f"tools/maxcso/maxcso.exe exists but banner is unexpected: {banner!r}")
@@ -175,11 +194,14 @@ def vendor_maxcso() -> None:
     # flat-extract every file (exe + any runtime DLLs) into tools/maxcso/
     subprocess.run(
         ["7z", "e", str(arc), f"-o{TOOLS / 'maxcso'}", "-y"],
-        capture_output=True, check=True,
+        capture_output=True, check=True, timeout=TOOL_TIMEOUT_SECONDS,
     )
     if not exe.exists():
         raise SystemExit("maxcso.exe not found in archive")
+    check_pin(exe, MAXCSO_EXE_SHA256, "maxcso exe")
     banner = run_banner([str(exe), "--version"]) or run_banner([str(exe)])
+    if banner != MAXCSO_BANNER:
+        raise SystemExit(f"extracted maxcso banner mismatch: {banner!r}")
     print(f"maxcso OK: {banner}\n  exe sha256 {sha256_of(exe)}")
     arc.unlink()
 

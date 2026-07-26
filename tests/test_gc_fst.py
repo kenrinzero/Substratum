@@ -34,6 +34,7 @@ REFERENCE = FIXTURE / "reference"
 NESTED = ROOT / "fixtures" / "gc_fst" / "nested"
 NESTED_ISO = NESTED / "game.iso"
 NESTED_REFERENCE = NESTED / "reference"
+SEEDTOOL_TIMEOUT_SECONDS = 600
 
 # Tool pin — matches what stage_gc_fst.py wrote into the manifest.
 # Re-authoring on a drifted wit changes the expected manifest and fails
@@ -217,6 +218,7 @@ def _ensure_nested_fixture():
     subprocess.run(
         ["uv", "run", "python", str(ROOT / "seedtools" / "make_gc_fst_nested_fixture.py")],
         cwd=str(ROOT), check=True, capture_output=True,
+        timeout=SEEDTOOL_TIMEOUT_SECONDS,
     )
 
 
@@ -224,6 +226,45 @@ def _ensure_nested_fixture():
 def nested_iso():
     _ensure_nested_fixture()
     return NESTED_ISO
+
+
+def test_nested_seedtool_streams_disc_authoring(tmp_path, monkeypatch):
+    """Disc-sized integer allocations are forbidden; authoring seeks and writes."""
+    import builtins
+
+    from seedtools import make_gc_fst_nested_fixture as seedtool
+
+    disc_size = 1 * 1024 * 1024
+    monkeypatch.setattr(seedtool, "_GC_DISC_SIZE", disc_size)
+    monkeypatch.setattr(seedtool, "_wit_exe", lambda: Path("wit.exe"))
+
+    def fake_wit_extract(command, **kwargs):
+        extract_target = Path(command[-1])
+        sys_dir = extract_target / "P-TEST" / "sys"
+        sys_dir.mkdir(parents=True)
+        boot = bytearray(seedtool._HEADER_LEN)
+        struct.pack_into(">I", boot, seedtool._DOL_OFF, 0x4000)
+        (sys_dir / "boot.bin").write_bytes(boot)
+        (sys_dir / "bi2.bin").write_bytes(b"B" * 0x200)
+        (sys_dir / "apploader.img").write_bytes(b"A" * 0x100)
+        (sys_dir / "main.dol").write_bytes(b"D" * 0x200)
+
+    monkeypatch.setattr(seedtool.subprocess, "run", fake_wit_extract)
+    real_bytearray = builtins.bytearray
+
+    def guarded_bytearray(value=0, *args, **kwargs):
+        if isinstance(value, int) and value >= disc_size:
+            raise AssertionError("seedtool attempted a disc-sized allocation")
+        return real_bytearray(value, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "bytearray", guarded_bytearray)
+    image = seedtool.build_image(tmp_path / "retail.iso", tmp_path / "nested.iso")
+
+    assert image.stat().st_size == disc_size
+    with image.open("rb") as fh:
+        header = fh.read(seedtool._HEADER_LEN)
+    assert header[: len(seedtool._DISC_ID)] == seedtool._DISC_ID
+    assert struct.unpack_from(">I", header, seedtool._MAGIC_OFF)[0] == seedtool._GC_MAGIC
 
 
 @skip_if_no_iso

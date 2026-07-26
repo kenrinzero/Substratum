@@ -36,12 +36,13 @@ ROOT = Path(__file__).resolve().parent.parent
 MAXCSO = ROOT / "tools" / "maxcso" / "maxcso.exe"
 ISO = ROOT / "fixtures" / "iso9660" / "synthetic" / "synthetic.iso"
 MAXCSO_VERSION = "v1.13.0"
+TOOL_TIMEOUT_SECONDS = 300
 
 
 def maxcso_version() -> str:
     p = subprocess.run(
         [str(MAXCSO), "--version"], capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", timeout=TOOL_TIMEOUT_SECONDS,
     )
     banner = (p.stdout + p.stderr).strip()
     return banner.split()[-1] if banner else MAXCSO_VERSION  # "maxcso v1.13.0" -> "v1.13.0"
@@ -58,14 +59,19 @@ def main() -> None:
     cso_path = out / "game.cso"
 
     # 1. compress the inner ISO to a CISO with the third-party author
-    subprocess.run([str(MAXCSO), str(ISO), "-o", str(cso_path)], capture_output=True, check=True)
+    subprocess.run(
+        [str(MAXCSO), str(ISO), "-o", str(cso_path)],
+        capture_output=True,
+        check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
+    )
 
     # 2. structural anchor — maxcso round-trips the .cso back to the exact ISO
     rt = out / "_roundtrip.iso"
     try:
         subprocess.run(
             [str(MAXCSO), "--decompress", str(cso_path), "-o", str(rt)],
-            capture_output=True, check=True,
+            capture_output=True, check=True, timeout=TOOL_TIMEOUT_SECONDS,
         )
         if sha256_of(rt) != sha256_of(ISO):
             raise SystemExit("maxcso --decompress does not reproduce the source ISO byte-exact")

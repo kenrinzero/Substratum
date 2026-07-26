@@ -61,6 +61,7 @@ import pycdlib
 from substratum.contract import FileEntry, FileSource, FileTree, canonical_manifest, sha256_of
 
 GENERATOR = "make_saturn_dc_raw_fixture v1"
+TOOL_TIMEOUT_SECONDS = 300
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -170,7 +171,8 @@ def entries_from_pycdlib(iso_path: Path) -> list[FileEntry]:
 
 def sevenzip_version() -> str:
     out = subprocess.run(
-        ["7z", "i"], capture_output=True, text=True, encoding="utf-8", errors="replace"
+        ["7z", "i"], capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=TOOL_TIMEOUT_SECONDS,
     ).stdout
     banner = next(line for line in out.splitlines() if line.strip())
     m = re.match(r"7-Zip (\S+) \((\w+)\).*: (\d{4}-\d{2}-\d{2})\s*$", banner.strip())
@@ -240,6 +242,7 @@ def remap_anchor(bin_path: Path, n_sectors: int) -> None:
         res = subprocess.run(
             ["7z", "l", "-slt", "-tiso", str(tmp)],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=TOOL_TIMEOUT_SECONDS,
         )
         if res.returncode != 0:
             raise SystemExit(f"7z cannot list remapped inner ISO:\n{res.stderr}")
@@ -258,6 +261,7 @@ def extract_reference(iso_path: Path, reference: Path) -> None:
     subprocess.run(
         ["7z", "x", "-tiso", "-sccUTF-8", "-y", f"-o{reference}", str(iso_path)],
         capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     for p in sorted(reference.rglob("*"), reverse=True):
         if ";" in p.name:

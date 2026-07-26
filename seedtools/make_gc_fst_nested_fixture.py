@@ -40,6 +40,7 @@ from substratum.contract import FileEntry, FileSource, FileTree, canonical_manif
 
 _WIT_REL = Path("tools") / "wit" / "wit.exe"
 STAGER = "make_gc_fst_nested_fixture v1"
+TOOL_TIMEOUT_SECONDS = 300
 
 # --- GC disc constants (mirror gc_fst.py; duplicated to keep the seedtool
 #     independent of the module under test) --------------------------------
@@ -92,7 +93,13 @@ def _wit_exe() -> Path:
 
 
 def wit_version(exe: Path) -> str:
-    out = subprocess.run([str(exe), "version"], capture_output=True, text=True, check=True)
+    out = subprocess.run(
+        [str(exe), "version"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
+    )
     first = out.stdout.strip().splitlines()[0]
     return first.split(":", 1)[1].strip() if first.lower().startswith("wit:") else first
 
@@ -164,7 +171,9 @@ def build_image(retail_iso: Path, dest: Path) -> Path:
         extract_target = tdp / "extract"
         subprocess.run(
             [str(exe), "extract", str(retail_iso), str(extract_target)],
-            capture_output=True, check=True,
+            capture_output=True,
+            check=True,
+            timeout=TOOL_TIMEOUT_SECONDS,
         )
         pdir = next(extract_target.glob("P-*/"), None)
         if pdir is None or not (pdir / "sys").is_dir():
@@ -203,28 +212,28 @@ def build_image(retail_iso: Path, dest: Path) -> Path:
         if content_end > _GC_DISC_SIZE:
             raise SystemExit("FST placement overflows disc size")
 
-        # Assemble the image.
-        img = bytearray(_GC_DISC_SIZE)
-        # Header region (0..0x440) from boot.bin, then patch the fields we own.
-        img[0:len(boot)] = boot
-        img[0:len(_DISC_ID)] = _DISC_ID  # synthetic disc id
-        struct.pack_into(">I", img, _MAGIC_OFF, _GC_MAGIC)  # GC magic
-        struct.pack_into(">I", img, _FST_OFF, fst_off)
-        struct.pack_into(">I", img, _FST_SIZE, fst_size)
-        # bi2 + apploader + dol at their standard offsets.
-        img[_BI2_OFF:_BI2_OFF + len(bi2)] = bi2
-        img[_APPLOADER_OFF:_APPLOADER_OFF + len(apploader)] = apploader
-        img[dol_off:dol_off + len(dol)] = dol
-        # File payloads.
-        for path in _FILES:
-            off, size = file_offsets[path]
-            img[off:off + size] = _payload(path)
-        # FST.
-        img[fst_off:fst_off + fst_size] = fst
-
+        # Patch the small boot header in memory, then author the 1.46 GB disc
+        # sparsely by seeking to each real region. Never allocate disc size.
+        patched_boot = bytearray(boot)
+        patched_boot[0:len(_DISC_ID)] = _DISC_ID
+        struct.pack_into(">I", patched_boot, _MAGIC_OFF, _GC_MAGIC)
+        struct.pack_into(">I", patched_boot, _FST_OFF, fst_off)
+        struct.pack_into(">I", patched_boot, _FST_SIZE, fst_size)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        with dest.open("wb") as f:
-            f.write(img)
+        with dest.open("w+b") as image:
+            image.truncate(_GC_DISC_SIZE)
+
+            def write_at(offset: int, payload: bytes) -> None:
+                image.seek(offset)
+                image.write(payload)
+
+            write_at(0, patched_boot)
+            write_at(_BI2_OFF, bi2)
+            write_at(_APPLOADER_OFF, apploader)
+            write_at(dol_off, dol)
+            for path in _FILES:
+                write_at(file_offsets[path][0], _payload(path))
+            write_at(fst_off, fst)
     return dest
 
 
@@ -241,7 +250,11 @@ def entries_from_wit_listing(exe: Path, iso: Path) -> list[FileEntry]:
     entries and root scripts are excluded: they are not FST records.
     """
     out = subprocess.run(
-        [str(exe), "files-ll", str(iso)], capture_output=True, text=True, check=True
+        [str(exe), "files-ll", str(iso)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     entries: list[FileEntry] = []
     for line in out.stdout.splitlines():
@@ -284,7 +297,9 @@ def extract_reference(exe: Path, iso: Path, dest: Path) -> Path:
     target = dest / "extract"
     subprocess.run(
         [str(exe), "extract", str(iso), str(target)],
-        capture_output=True, check=True,
+        capture_output=True,
+        check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     pdir = next(target.glob("P-*/"), None)
     if pdir is None or not (pdir / "files").is_dir():

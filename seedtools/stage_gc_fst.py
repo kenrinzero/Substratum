@@ -34,6 +34,7 @@ from substratum.contract import FileEntry, FileSource, FileTree, canonical_manif
 
 _WIT_REL = Path("tools") / "wit" / "wit.exe"
 STAGER = "stage_gc_fst v1"
+TOOL_TIMEOUT_SECONDS = 300
 
 
 def _wit_exe() -> Path:
@@ -46,7 +47,10 @@ def _wit_exe() -> Path:
 
 def wit_version(exe: Path) -> str:
     """First banner line, e.g. 'wit: Wiimms ISO Tool v3.05a r8638 cygwin64 ...'."""
-    out = subprocess.run([str(exe), "version"], capture_output=True, text=True, check=True)
+    out = subprocess.run(
+        [str(exe), "version"], capture_output=True, text=True, check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
+    )
     first = out.stdout.strip().splitlines()[0]
     # strip the leading "wit: " to leave "Wiimms ISO Tool v3.05a r8638 cygwin64 - ..."
     return first.split(":", 1)[1].strip() if first.lower().startswith("wit:") else first
@@ -72,7 +76,8 @@ def entries_from_wit_listing(exe: Path, iso: Path) -> list[FileEntry]:
     FST records.
     """
     out = subprocess.run(
-        [str(exe), "files-ll", str(iso)], capture_output=True, text=True, check=True
+        [str(exe), "files-ll", str(iso)], capture_output=True, text=True, check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     entries: list[FileEntry] = []
     for line in out.stdout.splitlines():
@@ -109,6 +114,7 @@ def extract_reference(exe: Path, iso: Path, dest: Path) -> Path:
         [str(exe), "extract", str(iso), str(target)],
         capture_output=True,
         check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     # locate the P-<GAMEID>/files directory (nested under extract/)
     pdir = next(target.glob("P-*/"), None)

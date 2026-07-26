@@ -31,6 +31,7 @@ import pycdlib
 from substratum.contract import FileEntry, FileSource, FileTree, canonical_manifest, sha256_of
 
 GENERATOR = "make_iso_fixture v1"
+TOOL_TIMEOUT_SECONDS = 300
 
 DIRS = ["/BOOT", "/DATA", "/DATA/SUB"]
 
@@ -70,7 +71,8 @@ def _canonical(iso_path: str) -> str:
 
 def sevenzip_version() -> str:
     out = subprocess.run(
-        ["7z", "i"], capture_output=True, text=True, encoding="utf-8", errors="replace"
+        ["7z", "i"], capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=TOOL_TIMEOUT_SECONDS,
     ).stdout
     banner = next(line for line in out.splitlines() if line.strip())
     # "7-Zip 26.02 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-06-25"
@@ -129,6 +131,7 @@ def listing_from_7z(iso_path: Path) -> dict[str, tuple[str, int]]:
     out = subprocess.run(
         ["7z", "l", "-slt", "-tiso", "-sccUTF-8", str(iso_path)],
         capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     ).stdout
     body = out.split("----------", 1)[1]
     listing: dict[str, tuple[str, int]] = {}
@@ -149,6 +152,7 @@ def extract_reference(iso_path: Path, reference: Path) -> None:
     subprocess.run(
         ["7z", "x", "-tiso", "-sccUTF-8", "-y", f"-o{reference}", str(iso_path)],
         capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     # normalize any ISO9660 version suffixes 7z may keep in extracted names
     for p in sorted(reference.rglob("*"), reverse=True):

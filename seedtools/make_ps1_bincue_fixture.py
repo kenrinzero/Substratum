@@ -44,6 +44,7 @@ together.
 import hashlib
 import io
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -58,6 +59,7 @@ import pycdlib
 from substratum.contract import FileEntry, FileSource, FileTree, canonical_manifest, sha256_of
 
 GENERATOR = "make_ps1_bincue_fixture v1"
+TOOL_TIMEOUT_SECONDS = 300
 
 ROOT = Path(__file__).resolve().parent.parent
 CHDMAN = ROOT / "tools" / "chdman" / "chdman.exe"
@@ -172,7 +174,8 @@ def entries_from_pycdlib(iso_path: Path) -> list[FileEntry]:
 
 def sevenzip_version() -> str:
     out = subprocess.run(
-        ["7z", "i"], capture_output=True, text=True, encoding="utf-8", errors="replace"
+        ["7z", "i"], capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=TOOL_TIMEOUT_SECONDS,
     ).stdout
     banner = next(line for line in out.splitlines() if line.strip())
     m = re.match(r"7-Zip (\S+) \((\w+)\).*: (\d{4}-\d{2}-\d{2})\s*$", banner.strip())
@@ -184,7 +187,7 @@ def sevenzip_version() -> str:
 def chdman_version() -> str:
     out = subprocess.run(
         [str(CHDMAN), "--help"], capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", timeout=TOOL_TIMEOUT_SECONDS,
     ).stdout
     # First line: "chdman - MAME Compressed Hunks of Data (CHD) manager 0.288 (mame0288)"
     return out.splitlines()[0].split("manager ")[1].strip()
@@ -247,10 +250,12 @@ def chdman_accept(bin_path: Path, cue_path: Path) -> None:
         subprocess.run(
             [str(CHDMAN), "createcd", "-i", str(cue_path), "-o", str(out_chd)],
             capture_output=True, check=True, text=True, encoding="utf-8", errors="replace",
+            timeout=TOOL_TIMEOUT_SECONDS,
         )
         info = subprocess.run(
             [str(CHDMAN), "info", "-i", str(out_chd)],
             capture_output=True, check=True, text=True, encoding="utf-8", errors="replace",
+            timeout=TOOL_TIMEOUT_SECONDS,
         ).stdout
         # Reject anything that isn't MODE2_RAW (e.g. MODE1 / untyped) —
         # the structural-anchor must confirm the mode byte was read.
@@ -267,6 +272,7 @@ def extract_reference(iso_path: Path, reference: Path) -> None:
     subprocess.run(
         ["7z", "x", "-tiso", "-sccUTF-8", "-y", f"-o{reference}", str(iso_path)],
         capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
     )
     for p in sorted(reference.rglob("*"), reverse=True):
         if ";" in p.name:
@@ -282,7 +288,6 @@ def main() -> None:
     if reference.exists():
         # Wipe stale extracted bytes from a prior run; pycdlib's
         # record dates mean the new .iso is byte-different each run.
-        import shutil
         shutil.rmtree(reference)
     out.mkdir(parents=True, exist_ok=True)
 
