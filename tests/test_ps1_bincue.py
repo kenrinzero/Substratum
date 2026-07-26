@@ -29,6 +29,23 @@ BIN = FIXTURE / "game.bin"
 CUE = FIXTURE / "game.cue"
 ISO = FIXTURE / "synthetic.iso"
 REFERENCE = FIXTURE / "reference"
+RETAIL_FIXTURE = ROOT / "fixtures" / "ps1_bincue" / "kings-field"
+RETAIL_BIN = (
+    ROOT
+    / "fixtures"
+    / "_local"
+    / "King's Field (Japan)"
+    / "King's Field (Japan)"
+    / "King's Field (Japan).bin"
+)
+RETAIL_REFERENCE = RETAIL_FIXTURE / "reference"
+RETAIL_CUE = RETAIL_BIN.with_suffix(".cue")
+RETAIL_BIN_SHA256 = (
+    "ae74beba377d686bfaa292ea40df8ade4454ec3139c2b5152364e02aac90b3d9"
+)
+RETAIL_CUE_SHA256 = (
+    "955b14c0a14254dd2866c0ee0ab15e02906f8020120295f6a681a62aeeb90ab7"
+)
 
 # Tool versions — must byte-match what make_ps1_bincue_fixture stamped
 # into the expected manifest. Re-authoring on a drifted tool changes the
@@ -39,6 +56,17 @@ TOOLS = {
     "pycdlib": "1.16.0",
     "generator": "make_ps1_bincue_fixture v1",
 }
+RETAIL_TOOLS = {
+    "7z": "7-Zip 26.02 (x64) 2026-06-25",
+    "chdman": "0.288 (mame0288)",
+    "pycdlib": "1.16.0",
+    "generator": "stage_ps1_retail_anchor v1",
+}
+
+skip_if_no_retail_anchor = pytest.mark.skipif(
+    not RETAIL_BIN.exists() or not RETAIL_REFERENCE.exists(),
+    reason="King's Field retail BIN/CUE or gitignored reference extraction absent",
+)
 
 
 def _normalize_ps1_to_tree(source):
@@ -70,6 +98,15 @@ def _stage_pair(tmp_path: Path, data: bytes) -> Path:
     bad_bin.write_bytes(data)
     bad_cue.write_text(CUE.read_text(), encoding="utf-8")
     return bad_bin
+
+
+def _mark_form2(data: bytearray, sector: int, payload: bytes) -> None:
+    """Turn one raw sector into Form 2 with matching XA copies."""
+    assert len(payload) == 2324
+    base = sector * 2352
+    data[base + 18] |= 0x20
+    data[base + 22] |= 0x20
+    data[base + 24 : base + 2348] = payload
 
 
 # --- green + basic shape -------------------------------------------------
@@ -171,16 +208,44 @@ def test_mode1_refused(tmp_path):
     assert problems and any(p.startswith("structural:") for p in problems)
 
 
-def test_mode2_form2_refused_structurally(tmp_path):
-    """XA submode bit 0x20 marks Form 2 and must never reach the user-data view."""
+def test_zero_filled_form2_system_area_is_accepted(tmp_path):
+    """Zero-filled Form-2 sectors before the PVD preserve the 2048-byte view."""
     data = bytearray(BIN.read_bytes())
-    data[18] |= 0x20
-    data[22] |= 0x20
+    for sector in range(12, 16):
+        _mark_form2(data, sector, b"\x00" * 2324)
+    mixed_bin = _stage_pair(tmp_path, bytes(data))
+
+    view = normalize_ps1_bincue(mixed_bin)
+    assert view.source.read_at(0, view.source.size()) == ISO.read_bytes()
+    assert _checks(mixed_bin) == []
+
+
+def test_nonzero_form2_system_area_refused_structurally(tmp_path):
+    """The exception is padding-only, never general XA Form-2 support."""
+    data = bytearray(BIN.read_bytes())
+    _mark_form2(data, 12, b"\x01" + b"\x00" * 2323)
     bad_bin = _stage_pair(tmp_path, bytes(data))
 
-    with pytest.raises(ValueError, match="Form 2"):
+    with pytest.raises(ValueError, match="non-zero.*Form 2"):
         normalize_ps1_bincue(bad_bin)
-    assert any("Form 2" in problem for problem in _checks(bad_bin))
+    assert any(
+        "non-zero" in problem and "Form 2" in problem
+        for problem in _checks(bad_bin)
+    )
+
+
+def test_zero_filled_form2_at_pvd_or_later_refused_structurally(tmp_path):
+    """Even zero-filled Form 2 remains out of scope at sector 16 and later."""
+    data = bytearray(BIN.read_bytes())
+    _mark_form2(data, 16, b"\x00" * 2324)
+    bad_bin = _stage_pair(tmp_path, bytes(data))
+
+    with pytest.raises(ValueError, match="outside.*system area"):
+        normalize_ps1_bincue(bad_bin)
+    assert any(
+        "outside" in problem and "system area" in problem
+        for problem in _checks(bad_bin)
+    )
 
 
 def test_mismatched_xa_subheader_copies_refused_structurally(tmp_path):
@@ -287,3 +352,63 @@ def test_wrong_offset_slicer_dies_structurally():
         raise AssertionError(
             "mutant not caught — wrong-offset slicer is green-as-red"
         )
+
+
+# --- gitignored retail-anchor proof ---------------------------------------
+
+
+def test_kings_field_metadata_manifest_is_valid():
+    """Committed metadata remains useful when the retail drop is absent."""
+    schema = json.loads((ROOT / "schema" / "manifest.schema.json").read_text("utf-8"))
+    doc = json.loads(
+        (RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+    jsonschema.Draft202012Validator(schema).validate(doc)
+    assert doc["format"] == "ps1-bincue"
+    assert doc["source"] == {
+        "name": "King's Field (Japan).bin",
+        "sha256": "b2604dc885a00c18caa2212b30fdccab9459c2ffacb7d3852671bbd5addedc9b",
+        "size": 26_451_968,
+    }
+    assert doc["tool_versions"] == RETAIL_TOOLS
+    assert len(doc["entries"]) == 470
+    assert {"LICENSEJ.DAT", "PSX.EXE"} <= {
+        entry["path"] for entry in doc["entries"]
+    }
+
+
+@skip_if_no_retail_anchor
+def test_kings_field_retail_anchor_is_green():
+    """The Redump-matching retail anchor passes the complete four-check gate."""
+    expected = json.loads(
+        (RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+
+    def normalize_retail(source):
+        view = normalize_ps1_bincue(source)
+        tree = normalize_iso9660(view.source)
+        return FileTree(
+            source=tree.source, format="ps1-bincue", entries=tree.entries
+        )
+
+    assert run_checks(
+        normalize_retail,
+        RETAIL_BIN,
+        RETAIL_FIXTURE / "expected.manifest.json",
+        RETAIL_REFERENCE,
+        RETAIL_BIN.name,
+        expected["source"]["sha256"],
+        RETAIL_TOOLS,
+    ) == []
+
+
+@skip_if_no_retail_anchor
+def test_kings_field_identity_and_form2_scope():
+    """Anchor metadata names the Japanese retail disc and its bounded exception."""
+    assert sha256_of(RETAIL_BIN) == RETAIL_BIN_SHA256
+    assert sha256_of(RETAIL_CUE) == RETAIL_CUE_SHA256
+    view = normalize_ps1_bincue(RETAIL_BIN)
+    tree = normalize_iso9660(view.source)
+    paths = {entry.path for entry in tree.entries}
+    assert {"LICENSEJ.DAT", "PSX.EXE"} <= paths
+    assert len(tree.entries) == 470

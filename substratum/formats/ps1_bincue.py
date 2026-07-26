@@ -22,8 +22,10 @@ anchor, collapsing toward a one-party round-trip). pycdlib is the byte
 differential; chdman is the structural anchor.
 
 Scope — deliberately unit-bounded (mirrors `iso9660` discipline):
-- Mode 2 Form 1 only. Mode 1, Mode 2 Form 2 (2324-byte video/ADPCM),
-  audio, multi-track, CD-TEXT, subchannel data are refused structurally.
+- Mode 2 Form 1, plus zero-filled Form-2 padding in the ISO9660 system
+  area (sectors 0-15). Non-zero Form 2 and all Form 2 at sector 16 or
+  later remain refused; video/ADPCM payload support is a separate row.
+- Mode 1, audio, multi-track, CD-TEXT, and subchannel data are refused.
 - Single data track, MODE2/2352, INDEX 01 00:00:00 in the .cue.
 - A .bin without a .cue sibling is refused (sniff-only on raw bytes).
 
@@ -46,8 +48,10 @@ HEADER_LEN = 4
 XA_SUB_LEN = 8
 XA_COPY_LEN = 4
 USER_LEN = 2048
+FORM2_USER_LEN = 2324
 EDC_LEN = 4
 ECC_LEN = 276
+ISO_SYSTEM_AREA_SECTORS = 16
 assert SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN + EDC_LEN + ECC_LEN == SECTOR
 
 SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
@@ -64,8 +68,14 @@ class _CueError(ValueError):
     """Refusal from a malformed .cue. Becomes a structural red at check 1."""
 
 
-def _validate_mode2_form1_sector(raw: bytes, abs_sec: int) -> None:
-    """Validate the sector envelope and the repeated XA Form-1 subheader."""
+def _validate_mode2_sector(raw: bytes, abs_sec: int) -> None:
+    """Validate a supported sector envelope and its repeated XA subheader.
+
+    Form 2 is admitted only as all-zero padding before ISO9660's first
+    volume descriptor. Those sectors contribute the same 2048 zero bytes
+    to the logical view as ordinary Form-1 system-area padding; no
+    2324-byte payload semantics are exposed.
+    """
     if len(raw) != SECTOR:
         raise ValueError(
             f"ps1-bincue: sector {abs_sec} short read ({len(raw)} < {SECTOR})"
@@ -89,10 +99,22 @@ def _validate_mode2_form1_sector(raw: bytes, abs_sec: int) -> None:
             f"ps1-bincue: sector {abs_sec} XA subheader copies differ "
             f"({first.hex()} != {repeated.hex()})"
         )
-    if first[2] & FORM2_BIT:
+    if not first[2] & FORM2_BIT:
+        return
+
+    if abs_sec >= ISO_SYSTEM_AREA_SECTORS:
         raise ValueError(
             f"ps1-bincue: sector {abs_sec} is Mode 2 Form 2 "
-            "(2324-byte Form 2 sectors are out of scope)"
+            "outside the supported zero-filled ISO9660 system area "
+            f"(sectors 0-{ISO_SYSTEM_AREA_SECTORS - 1})"
+        )
+    payload_start = SYNC_LEN + HEADER_LEN + XA_SUB_LEN
+    payload = raw[payload_start : payload_start + FORM2_USER_LEN]
+    if any(payload):
+        raise ValueError(
+            f"ps1-bincue: sector {abs_sec} has a non-zero Mode 2 Form 2 "
+            "payload in the ISO9660 system area "
+            "(general 2324-byte Form 2 payloads are out of scope)"
         )
 
 
@@ -171,12 +193,14 @@ def _parse_cue(cue_path: Path) -> tuple[str, int]:
 
 
 class _Mode2RemapSource:
-    """Lazy ByteSource over the Mode 2 Form 1 user-data stream.
+    """Lazy ByteSource over the supported Mode-2 user-data stream.
 
     Nothing is materialized (DESIGN §1): `read_at` maps output offsets
     to (sector index, sector offset) and reads each 2352-byte sector
     from the underlying raw .bin on demand. A one-sector cache keeps
     sequential reads within a sector from re-reading the raw bytes.
+    Admitted Form-2 system padding is all zero, so its first 2048 bytes
+    are the canonical logical-sector representation.
     """
 
     def __init__(self, raw: ByteSource, start_sector: int, n_sectors: int) -> None:
@@ -199,7 +223,7 @@ class _Mode2RemapSource:
             return self._cache_user
         abs_sec = self._start + i
         raw = self._raw.read_at(abs_sec * SECTOR, SECTOR)
-        _validate_mode2_form1_sector(raw, abs_sec)
+        _validate_mode2_sector(raw, abs_sec)
         user = bytes(raw[SYNC_LEN + HEADER_LEN + XA_SUB_LEN : SYNC_LEN + HEADER_LEN + XA_SUB_LEN + USER_LEN])
         self._cache_i = i
         self._cache_user = user
@@ -268,7 +292,7 @@ def normalize_ps1_bincue(source) -> ByteView:
 
     Refusals (structural reds): no .cue sibling, multi-track, audio,
     non-MODE2/2352, bad INDEX 01, sync mismatch, mode != 2, .bin
-    not a multiple of 2352.
+    not a multiple of 2352, non-zero Form 2, or Form 2 at sector 16+.
     """
     src, cue_path = _resolve_pair(source)
     bin_name, start_sector = _parse_cue(cue_path)
@@ -302,6 +326,6 @@ def normalize_ps1_bincue(source) -> ByteView:
     for i in range(n_data):
         abs_sec = start_sector + i
         raw = src.read_at(abs_sec * SECTOR, SECTOR)
-        _validate_mode2_form1_sector(raw, abs_sec)
+        _validate_mode2_sector(raw, abs_sec)
 
     return ByteView(source=_Mode2RemapSource(src, start_sector, n_data), format="ps1-bincue")
