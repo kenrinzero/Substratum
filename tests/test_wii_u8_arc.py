@@ -80,6 +80,30 @@ def test_expected_manifest_validates_against_schema():
     assert doc["source"]["name"] == "archive.arc"
     assert doc["source"]["size"] == ARC.stat().st_size
 
+
+def _minimal_u8_archive(name: bytes) -> bytes:
+    metadata = bytearray(24) + b"\x00" + name + b"\x00"
+    metadata[0] = 1
+    struct.pack_into(">I", metadata, 8, 2)
+    metadata[12] = 0
+    metadata[13:16] = (1).to_bytes(3, "big")
+    struct.pack_into(">I", metadata, 16, 0x80)
+
+    archive = bytearray(0x80)
+    struct.pack_into(">IIII", archive, 0, 0x55AA382D, 0x20, len(metadata), 0x80)
+    archive[0x20 : 0x20 + len(metadata)] = metadata
+    return bytes(archive)
+
+
+@pytest.mark.parametrize("name", [b"", b".", b"..", b"../X", b"..\\X"])
+def test_invalid_path_component_is_structural_red(tmp_path, name):
+    bad = tmp_path / "bad.arc"
+    bad.write_bytes(_minimal_u8_archive(name))
+
+    with pytest.raises(ValueError, match="invalid U8 path component"):
+        normalize_wii_u8_arc(bad)
+
+
 # --- structural reds (bounded discipline) --------------------------------
 
 def test_corrupted_tag_is_structural_red(tmp_path):

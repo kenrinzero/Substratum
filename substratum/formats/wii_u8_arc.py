@@ -3,7 +3,8 @@
 Scope:
 - Parses uncompressed U8 archives (`.arc`) and walks their node table into a FileTree.
 - Refuses rather than guesses (structural red): YAZ0/SZS-compressed U8, bad tag, root not a dir,
-  node table or string table out of bounds, cyclic directory sizes, non-ASCII names.
+  node table or string table out of bounds, cyclic directory sizes, non-ASCII names,
+  and empty/dot/traversal path components.
 
 Runtime is stdlib-only per DESIGN.md § 4.
 """
@@ -65,6 +66,8 @@ def _walk(metadata: bytes, n_nodes: int, src_size: int) -> list[FileEntry]:
         i = dir_index + 1
         while i <= last_index:
             ntype, name, f1, f2 = _node(i)
+            if not name or name in {".", ".."} or "/" in name or "\\" in name:
+                raise ValueError(f"invalid U8 path component {name!r}")
             path = f"{prefix}/{name}" if prefix else name
             if ntype == 0:  # file
                 # f1 = absolute file offset, f2 = file size
