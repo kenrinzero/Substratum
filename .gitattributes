@@ -1,3 +1,6 @@
 # Byte-exactness is this repo's premise: no eol conversion, ever.
 # Fixtures, manifests, and reference bytes are binary truth.
 * -text
+# Independently extracted fixture payloads are binary truth even when a
+# filename has a text extension; do not report their bytes as whitespace.
+fixtures/saturn_dc_raw/save-game-copier-3.7.1/reference/** -whitespace
