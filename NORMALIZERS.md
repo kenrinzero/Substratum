@@ -35,6 +35,13 @@ from 6.181793 s to 0.356493 s, an equal 110,608,384-byte comparison from
 Exact first-difference offsets, raw-read counts, batch bounds, and corruption
 diagnostics at the first batch boundary are regression-tested.
 
+**Saturn/Dreamcast streaming proof (2026-07-26):** eager validation and
+cooked reads now use bounded 512-sector raw batches while preserving complete
+per-sector sync/mode validation. On the 83-sector synthetic fixture,
+normalization improved from 0.005048 s to 0.000352 s and a complete cooked read
+from 0.004524 s to 0.000313 s. Raw-read counts, batch bounds, byte identity, and
+exact corruption diagnostics at sector 512 are regression-tested.
+
 Prep rows (explicitly-scoped, not normalizer units) — **all DONE
 2026-07-17** via `seedtools/vendor_tools.py` (binaries live in gitignored
 `tools/`; the committed script re-fetches and verifies against its pinned
