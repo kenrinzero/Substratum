@@ -28,10 +28,11 @@ fixed 2048-byte cooked view needed for ISO9660 LBA composition.
 `saturn-dc-raw` is anchored by the GPL-3.0 Save Game Copier 3.7.1
 release: 412 complete Mode-1 sectors independently reconstructed and
 verified by pinned ECM/UNECM, then decoded byte-exactly to the upstream
-ISO. Runtime validation also requires valid BCD addresses and a
-monotonically advancing MSF sequence from any valid starting address;
-full EDC/P-Q ECC stays with the staging oracle after its stdlib runtime
-cost was benchmarked at roughly 162 seconds for a full-sized disc.
+ISO. Both raw-CD normalizers require valid BCD addresses and a
+monotonically advancing MSF sequence from any valid starting address.
+For `saturn-dc-raw`, full EDC/P-Q ECC stays with the staging oracle after
+its stdlib runtime cost was benchmarked at roughly 162 seconds for a
+full-sized disc.
 
 The two keyed-platform families (`wii partitions` and `3ds ncch-cia`)
 remain deliberately deferred. See `NORMALIZERS.md` for exact format
