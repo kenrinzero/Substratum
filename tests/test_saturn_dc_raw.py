@@ -57,6 +57,20 @@ HOMEBREW_TOOLS = {
 }
 
 
+def _bcd(value: int) -> int:
+    return ((value // 10) << 4) | (value % 10)
+
+
+def _set_msf_sequence(data: bytearray, origin_frames: int) -> None:
+    for sector, base in enumerate(range(0, len(data), raw_module.SECTOR)):
+        absolute = origin_frames + sector
+        minute, remainder = divmod(absolute, 60 * 75)
+        second, frame = divmod(remainder, 75)
+        data[base + raw_module.MSF_OFFSET : base + raw_module.MSF_OFFSET + 3] = (
+            bytes((_bcd(minute), _bcd(second), _bcd(frame)))
+        )
+
+
 def _normalize_saturn_to_tree(source):
     """Wrapper for run_checks: Saturn raw -> ByteView -> iso9660 -> FileTree.
 
@@ -195,7 +209,9 @@ def test_cooked_reads_batch_raw_sectors():
 
     raw = CountingSource(BIN)
     sector_count = raw.size() // raw_module.SECTOR
-    source = raw_module._Mode1RemapSource(raw, sector_count)
+    first = raw.inner.read_at(0, raw_module.SECTOR)
+    origin_msf = raw_module._decode_msf(first, 0)
+    source = raw_module._Mode1RemapSource(raw, sector_count, origin_msf)
     assert source.read_at(0, source.size()) == ISO.read_bytes()
     expected_batches = (
         sector_count + raw_module._RAW_BATCH_SECTORS - 1
@@ -280,6 +296,54 @@ def test_mode2_refused(tmp_path):
     assert_structural_failure(problems, "mode 2 != 1")
 
 
+def test_invalid_bcd_msf_refused(tmp_path):
+    bad_bin = tmp_path / "bad.bin"
+    data = bytearray(BIN.read_bytes())
+    data[raw_module.MSF_OFFSET] = 0xFA
+    bad_bin.write_bytes(data)
+    assert_structural_failure(_checks(bad_bin), "invalid BCD minute 0xfa")
+
+
+def test_out_of_range_msf_refused(tmp_path):
+    bad_bin = tmp_path / "bad.bin"
+    data = bytearray(BIN.read_bytes())
+    data[raw_module.MSF_OFFSET + 1] = 0x60
+    bad_bin.write_bytes(data)
+    assert_structural_failure(_checks(bad_bin), "MSF second 60 >= 60")
+
+
+def test_out_of_range_msf_frame_refused(tmp_path):
+    bad_bin = tmp_path / "bad.bin"
+    data = bytearray(BIN.read_bytes())
+    data[raw_module.MSF_OFFSET + 2] = 0x75
+    bad_bin.write_bytes(data)
+    assert_structural_failure(_checks(bad_bin), "MSF frame 75 >= 75")
+
+
+def test_non_contiguous_msf_refused(tmp_path):
+    bad_bin = tmp_path / "bad.bin"
+    data = bytearray(BIN.read_bytes())
+    second = raw_module.SECTOR
+    data[second + raw_module.MSF_OFFSET : second + raw_module.MSF_OFFSET + 3] = (
+        data[raw_module.MSF_OFFSET : raw_module.MSF_OFFSET + 3]
+    )
+    bad_bin.write_bytes(data)
+    assert_structural_failure(
+        _checks(bad_bin),
+        "sector 1 MSF 00:02:00 is not contiguous (expected 00:02:01)",
+    )
+
+
+def test_arbitrary_valid_starting_msf_is_accepted(tmp_path):
+    shifted_bin = tmp_path / "shifted.bin"
+    data = bytearray(BIN.read_bytes())
+    _set_msf_sequence(data, (10 * 60 + 2) * 75)
+    shifted_bin.write_bytes(data)
+
+    view = normalize_saturn_dc_raw(shifted_bin)
+    assert view.source.read_at(0, view.source.size()) == ISO.read_bytes()
+
+
 def test_corruption_at_batch_boundary_reports_exact_sector(tmp_path):
     """Batched validation retains absolute sector diagnostics."""
     sector = raw_module._RAW_BATCH_SECTORS
@@ -287,6 +351,7 @@ def test_corruption_at_batch_boundary_reports_exact_sector(tmp_path):
     original_sectors = len(original) // raw_module.SECTOR
     repeats = (sector + original_sectors) // original_sectors
     data = bytearray(original * repeats)
+    _set_msf_sequence(data, 2 * 75)
     data[sector * raw_module.SECTOR] ^= 0xFF
     bad_bin = tmp_path / "bad.bin"
     bad_bin.write_bytes(data)

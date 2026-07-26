@@ -11,13 +11,13 @@ Sector layout (ECMA-130 / Yellow Book Mode 1):
   [0:12)      sync     (`00 FF*10 00`)
   [12:16)     header   (BCD minute/second/frame + mode=1)
   [16:2064)   user data (2048 bytes)
-  [2064:2068) EDC      (CRC-32 over [12, 2064))
+  [2064:2068) EDC      (CD-ROM EDC over [0, 2064))
   [2068:2076) reserved (8 zero bytes)
   [2076:2352) ECC      (276 bytes)
   total = 12+4+2048+4+8+276 = 2352 bytes
 
-This is the Mode 1 sibling of `ps1_bincue` (which handles Mode 2 XA
-XA). Saturn and DC both store 2048-byte user data inside 2352-byte raw
+This is the Mode 1 sibling of `ps1_bincue` (which handles Mode 2 XA).
+Saturn and DC both store 2048-byte user data inside 2352-byte raw
 Mode 1 sectors; the difference is the absence of the 8-byte XA subheader
 and the mode byte (1 vs 2). The whole file is one contiguous data track —
 no .cue is required (the registry lists `deps: none` and the differential
@@ -27,8 +27,9 @@ Scope — deliberately unit-bounded (mirrors `ps1_bincue` discipline):
 - 2352-byte CD-ROM Mode 1 raw, single data track, no cue.
 - 2048-byte raw images are `iso9660`'s domain (redundant unit) — they
   sniff False here and fall through to `iso9660`.
-- Refused structurally: multi-track/audio, mode != 1, bad sync,
-  size not a multiple of 2352.
+- Refused structurally: multi-track/audio, mode != 1, bad sync, invalid
+  BCD/MSF address, non-contiguous sector addresses, size not a multiple
+  of 2352.
 
 Runtime is stdlib-only per DESIGN.md § 4.
 """
@@ -55,12 +56,44 @@ USER_END = USER_START + USER_LEN  # 2064
 
 SYNC = b"\x00" + b"\xFF" * 10 + b"\x00"  # 12 bytes
 MODE1 = 0x01
+MSF_OFFSET = SYNC_LEN  # header[0:3] -> absolute [12:15)
+MSF_LEN = 3
 # mode byte is the 4th byte of the 4-byte header -> absolute offset 15
 MODE_OFFSET = SYNC_LEN + HEADER_LEN - 1  # 15
 
 
-def _validate_mode1_sector(raw: bytes, index: int) -> bytes:
-    """Validate one raw Mode-1 sector and return its 2048-byte user block."""
+def _from_bcd(value: int, field: str, index: int) -> int:
+    high, low = value >> 4, value & 0x0F
+    if high > 9 or low > 9:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} invalid BCD {field} 0x{value:02x}"
+        )
+    return high * 10 + low
+
+
+def _decode_msf(raw: bytes, index: int) -> int:
+    minute = _from_bcd(raw[MSF_OFFSET], "minute", index)
+    second = _from_bcd(raw[MSF_OFFSET + 1], "second", index)
+    frame = _from_bcd(raw[MSF_OFFSET + 2], "frame", index)
+    if second >= 60:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} MSF second {second} >= 60"
+        )
+    if frame >= 75:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} MSF frame {frame} >= 75"
+        )
+    return (minute * 60 + second) * 75 + frame
+
+
+def _format_msf(frame_number: int) -> str:
+    minute, remainder = divmod(frame_number, 60 * 75)
+    second, frame = divmod(remainder, 75)
+    return f"{minute:02d}:{second:02d}:{frame:02d}"
+
+
+def _validate_sector_structure(raw: bytes, index: int) -> int:
+    """Validate one sector's fixed fields and return its absolute MSF frame."""
     if len(raw) != SECTOR:
         raise ValueError(
             f"saturn-dc-raw: sector {index} short read ({len(raw)} < {SECTOR})"
@@ -75,6 +108,18 @@ def _validate_mode1_sector(raw: bytes, index: int) -> bytes:
             f"saturn-dc-raw: sector {index} mode {raw[MODE_OFFSET]} != 1 "
             "(Mode 2 / audio are out of scope)"
         )
+    return _decode_msf(raw, index)
+
+
+def _validate_mode1_sector(raw: bytes, index: int, origin_msf: int) -> bytes:
+    """Validate one raw Mode-1 sector and return its 2048-byte user block."""
+    got_msf = _validate_sector_structure(raw, index)
+    expected_msf = origin_msf + index
+    if got_msf != expected_msf:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} MSF {_format_msf(got_msf)} "
+            f"is not contiguous (expected {_format_msf(expected_msf)})"
+        )
     return raw[USER_START:USER_END]
 
 
@@ -88,9 +133,10 @@ class _Mode1RemapSource:
     within a sector from re-reading the raw bytes.
     """
 
-    def __init__(self, raw: ByteSource, n_sectors: int) -> None:
+    def __init__(self, raw: ByteSource, n_sectors: int, origin_msf: int) -> None:
         self._raw = raw
         self._n = n_sectors
+        self._origin_msf = origin_msf
         self._cache_i = -1
         self._cache_user = b""
 
@@ -102,7 +148,7 @@ class _Mode1RemapSource:
         if i == self._cache_i:
             return self._cache_user
         raw = self._raw.read_at(i * SECTOR, SECTOR)
-        user = _validate_mode1_sector(raw, i)
+        user = _validate_mode1_sector(raw, i, self._origin_msf)
         self._cache_i = i
         self._cache_user = user
         return user
@@ -126,7 +172,9 @@ class _Mode1RemapSource:
                 sector_index = first_sector + batch_index
                 raw_offset = batch_index * SECTOR
                 raw = raw_batch[raw_offset : raw_offset + SECTOR]
-                block = _validate_mode1_sector(raw, sector_index)
+                block = _validate_mode1_sector(
+                    raw, sector_index, self._origin_msf
+                )
                 self._cache_i = sector_index
                 self._cache_user = block
                 block_offset = within if batch_index == 0 else 0
@@ -161,7 +209,8 @@ def normalize_saturn_dc_raw(source) -> ByteView:
     `ByteView` — the caller composes with `iso9660` (DESIGN §1).
 
     Refusals (structural reds): empty, size not a multiple of 2352,
-    any-sector sync mismatch, any-sector mode != 1.
+    any-sector sync mismatch, any-sector mode != 1, invalid BCD/MSF, or
+    non-contiguous sector addresses.
     """
     src = source if isinstance(source, ByteSource) else FileSource(source)
     if src.size() == 0:
@@ -173,11 +222,12 @@ def normalize_saturn_dc_raw(source) -> ByteView:
         )
     n_sectors = src.size() // SECTOR
 
-    # Eager structural pass: validate sync + mode on every sector at
-    # normalize time, so a corrupted sector surfaces as a check-1
+    # Eager structural pass: validate sync + mode + BCD/MSF sequence on
+    # every sector at normalize time, so corruption surfaces as a check-1
     # structural red rather than a check-4 fidelity error mid-read.
     # Bounded raw batches are read and immediately discarded; the user
     # stream is NOT materialized.
+    origin_msf: int | None = None
     for batch_start in range(0, n_sectors, _RAW_BATCH_SECTORS):
         batch_count = min(_RAW_BATCH_SECTORS, n_sectors - batch_start)
         raw_batch = src.read_at(
@@ -187,6 +237,13 @@ def normalize_saturn_dc_raw(source) -> ByteView:
             i = batch_start + batch_index
             raw_offset = batch_index * SECTOR
             raw = raw_batch[raw_offset : raw_offset + SECTOR]
-            _validate_mode1_sector(raw, i)
+            if origin_msf is None:
+                origin_msf = _validate_sector_structure(raw, i)
+            else:
+                _validate_mode1_sector(raw, i, origin_msf)
 
-    return ByteView(source=_Mode1RemapSource(src, n_sectors), format="saturn-dc-raw")
+    assert origin_msf is not None
+    return ByteView(
+        source=_Mode1RemapSource(src, n_sectors, origin_msf),
+        format="saturn-dc-raw",
+    )
