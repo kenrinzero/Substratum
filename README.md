@@ -16,12 +16,50 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Stage-0 seed (2026-07-07): interface + manifest schema frozen, four-check
-gate live, TOYFS harness fixture committed, both red-team cases proven
-(corrupted header → structural red; self-consistent off-by-one slicer →
-red **only** at byte-range fidelity, exactly as designed). **No real
-normalizers yet** — S1 (`iso9660`) is the first floor unit
-(`NORMALIZERS.md`).
+Version 0.0.7 (2026-07-26): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and eight real
+normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
+`saturn-dc-raw`, `cso`, `wii-u8-arc`, and `xdvdfs`. Every unit runs
+through the same four-check structural, manifest, round-trip, and
+byte-fidelity gate; the large GameCube fixtures also carry a 1 GB
+per-test peak-RSS guard.
+
+The two keyed-platform families (`wii partitions` and `3ds ncch-cia`)
+remain deliberately deferred. See `NORMALIZERS.md` for exact format
+bounds, fixture provenance, and optional proof-strengthening requests.
+
+## Use
+
+```python
+from substratum import normalize
+from substratum.contract import ByteView
+
+result = normalize("disc.cso")  # auto-detect one layer
+if isinstance(result, ByteView):
+    result = normalize(result.source)  # caller-visible composition
+
+# Pinning bypasses sniffing while retaining that normalizer's validation:
+tree = normalize("archive.arc", format="wii-u8-arc")
+```
+
+`normalize()` never recurses. Container and raw-sector decoders return a
+`ByteView`; filesystem/archive walkers return a `FileTree`.
+
+## Installation posture
+
+Substratum currently targets Python 3.13+ and is maintained as a
+local-only source project (no Git remote or published package yet):
+
+```powershell
+uv sync
+uv run pytest
+```
+
+The runtime package itself is stdlib-only. CHD decoding additionally
+requires the pinned repo-local `tools/chdman/chdman.exe`, restored with
+`uv run python seedtools/vendor_tools.py`; other vendored tools are
+fixture-authoring or differential anchors. A wheel can be built locally
+with `uv build`, but publishing/promotion is intentionally deferred.
 
 ## How a unit works
 
