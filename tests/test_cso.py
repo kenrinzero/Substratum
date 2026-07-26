@@ -12,11 +12,13 @@ into the byte-identical decompressed stream). source.sha256/size describe
 the decompressed inner ISO; source.name identifies the .cso.
 """
 
+import hashlib
 import json
 import struct
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from substratum.contract import ByteView, FileSource, FileTree, sha256_of
 from substratum.formats.cso import normalize_cso, sniff
@@ -27,6 +29,12 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "cso" / "synthetic"
 ISO = ROOT / "fixtures" / "iso9660" / "synthetic" / "synthetic.iso"
 ISO_REF = ROOT / "fixtures" / "iso9660" / "synthetic" / "reference"
+RETAIL_FIXTURE = ROOT / "fixtures" / "cso" / "ape-escape"
+RETAIL_CSO = ROOT / "fixtures" / "_local" / "cso" / "Ape Escape (EU).cso"
+RETAIL_REFERENCE = RETAIL_FIXTURE / "reference"
+RETAIL_CSO_SHA256 = (
+    "2298624db25dc7615b1fc69605824f635a59202827107de74988255b56d505f1"
+)
 
 # Tool versions — must byte-match what make_cso_fixture stamped into the
 # expected manifest (maxcso authored the .cso; pycdlib read the entries).
@@ -35,6 +43,17 @@ TOOLS = {
     "pycdlib": "1.16.0",
     "generator": "make_cso_fixture v1",
 }
+RETAIL_TOOLS = {
+    "7z": "7-Zip 26.02 (x64) 2026-06-25",
+    "maxcso": "v1.13.0",
+    "pycdlib": "1.16.0",
+    "generator": "stage_cso_retail_anchor v1",
+}
+
+skip_if_no_retail_anchor = pytest.mark.skipif(
+    not RETAIL_CSO.exists() or not RETAIL_REFERENCE.exists(),
+    reason="Ape Escape retail CSO or gitignored reference extraction absent",
+)
 
 _HDR = struct.Struct("<4sIQIBBBB")  # magic, header_size, total, block, ver, align, u, u
 
@@ -192,3 +211,76 @@ def test_corrupted_block_is_structural_red(tmp_path):
         return data
     problems = _checks(_write_bad(tmp_path, f))
     assert problems and any(p.startswith("structural:") for p in problems)
+
+
+# --- gitignored retail-anchor proof ---------------------------------------
+
+
+def _normalize_retail_cso_to_tree(source):
+    view = normalize_cso(source)
+    tree = normalize_iso9660(view.source)
+    return FileTree(source=tree.source, format="cso", entries=tree.entries)
+
+
+def _sha256_source(source) -> str:
+    digest = hashlib.sha256()
+    for offset in range(0, source.size(), 1 << 20):
+        digest.update(source.read_at(offset, min(1 << 20, source.size() - offset)))
+    return digest.hexdigest()
+
+
+def test_ape_escape_metadata_manifest_is_valid():
+    """Committed metadata remains useful when the retail drop is absent."""
+    schema = json.loads((ROOT / "schema" / "manifest.schema.json").read_text("utf-8"))
+    doc = json.loads(
+        (RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+    jsonschema.Draft202012Validator(schema).validate(doc)
+    assert doc["format"] == "cso"
+    assert doc["source"] == {
+        "name": "Ape Escape (EU).cso",
+        "sha256": "1733f2c7fda4e8ccbf1a1440a8bbd133705d4c5da436a7a65f686de78810ef61",
+        "size": 801_603_584,
+    }
+    assert doc["tool_versions"] == RETAIL_TOOLS
+    assert len(doc["entries"]) == 550
+    assert {"PSP_GAME/PARAM.SFO", "UMD_DATA.BIN"} <= {
+        entry["path"] for entry in doc["entries"]
+    }
+
+
+@skip_if_no_retail_anchor
+def test_ape_escape_retail_anchor_is_green():
+    """The Archive-matching retail anchor passes the complete four-check gate."""
+    expected = json.loads(
+        (RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+    assert run_checks(
+        _normalize_retail_cso_to_tree,
+        RETAIL_CSO,
+        RETAIL_FIXTURE / "expected.manifest.json",
+        RETAIL_REFERENCE,
+        RETAIL_CSO.name,
+        expected["source"]["sha256"],
+        RETAIL_TOOLS,
+    ) == []
+
+
+@skip_if_no_retail_anchor
+def test_ape_escape_carrier_decode_and_identity():
+    """Carrier fixity and the complete decoded stream match independent truth."""
+    expected = json.loads(
+        (RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii")
+    )
+    assert sha256_of(RETAIL_CSO) == RETAIL_CSO_SHA256
+    view = normalize_cso(RETAIL_CSO)
+    assert _sha256_source(view.source) == expected["source"]["sha256"]
+
+    tree = normalize_iso9660(view.source)
+    by_path = {entry.path: entry for entry in tree.entries}
+    param = tree.read(by_path["PSP_GAME/PARAM.SFO"])
+    umd_data = tree.read(by_path["UMD_DATA.BIN"])
+    assert b"Ape Escape" in param
+    assert b"UCES00045" in param
+    assert b"1.00" in param
+    assert b"UCES-00045" in umd_data
