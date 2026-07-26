@@ -194,6 +194,31 @@ def test_paths_posix_and_no_leading_slash():
         assert "\\" not in e["path"]
 
 
+def _minimal_gc_image(name: bytes) -> bytes:
+    fst = bytearray(24) + name + b"\x00"
+    fst[0] = 1
+    struct.pack_into(">I", fst, 8, 2)
+    fst[12] = 0
+    fst[13:16] = (0).to_bytes(3, "big")
+
+    fst_offset = 0x440
+    image = bytearray(fst_offset + len(fst))
+    struct.pack_into(">I", image, 0x01C, 0xC2339F3D)
+    struct.pack_into(">I", image, 0x424, fst_offset)
+    struct.pack_into(">I", image, 0x428, len(fst))
+    image[fst_offset:] = fst
+    return bytes(image)
+
+
+@pytest.mark.parametrize("name", [b"", b".", b"..", b"../X", b"..\\X"])
+def test_invalid_path_component_is_structural_red(tmp_path, name):
+    bad = tmp_path / "bad.iso"
+    bad.write_bytes(_minimal_gc_image(name))
+
+    with pytest.raises(ValueError, match="invalid FST path component"):
+        normalize_gc_fst(bad)
+
+
 # mirror the normalizer's node-size constant for the truncation test
 _NODE_SIZE = 0x0C
 

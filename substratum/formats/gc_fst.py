@@ -10,7 +10,7 @@ Scope — deliberately unit-bounded (mirrors iso9660's discipline):
   magic, deferred keyed platform), TGC (a standalone TGC lacks the GC
   magic and is refused; an embedded GCM whose FST fields are bogus dies at
   the bounds checks), FST out of bounds, malformed node tables, non-ASCII
-  names.
+  names, and empty/dot/traversal path components.
 
 Runtime is stdlib-only per DESIGN.md § 4.
 
@@ -56,9 +56,12 @@ def _read_name(fst: bytes, strtab_base: int, name_off: int) -> str:
         raise ValueError(f"name at offset {name_off} has no null terminator")
     raw = fst[start:end]
     try:
-        return raw.decode("ascii")
+        name = raw.decode("ascii")
     except UnicodeDecodeError as exc:
         raise ValueError(f"non-ASCII bytes in FST name {raw!r}") from exc
+    if not name or name in {".", ".."} or "/" in name or "\\" in name:
+        raise ValueError(f"invalid FST path component {name!r}")
+    return name
 
 
 def _walk(fst: bytes, src_size: int) -> list[FileEntry]:
@@ -72,9 +75,9 @@ def _walk(fst: bytes, src_size: int) -> list[FileEntry]:
 
     Directory nesting is handled by the standard FST traversal: a
     directory's direct children are the contiguous nodes [self+1, next),
-    recursed in order. The fixture (flat) does not exercise nested dirs,
-    but the parser supports them — a nested-dir fixture is future
-    proof-strengthening (spec open item 1).
+    recursed in order. The flat retail fixture has no nested directories;
+    the on-demand nested fixture exercises close/resume and
+    sibling-after-subtree behavior through the same path.
     """
     if len(fst) < _NODE_SIZE:
         raise ValueError("FST too small for root node")
