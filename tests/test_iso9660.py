@@ -7,6 +7,7 @@ here derives truth from the parser under test.
 """
 
 import json
+import struct
 from pathlib import Path
 
 import jsonschema
@@ -87,6 +88,72 @@ def test_truncated_image_is_structural_red(tmp_path):
     bad.write_bytes((SYN / "synthetic.iso").read_bytes()[: 20 * 2048])
     problems = checks(fixture=bad)
     assert_structural_failure(problems, "out of bounds")
+
+
+@pytest.mark.parametrize("name", [b"", b".", b"..", b"../X", b"..\\X"])
+def test_invalid_path_component_is_structural_red(tmp_path, name):
+    bad = tmp_path / "synthetic.iso"
+    data = bytearray((SYN / "synthetic.iso").read_bytes())
+    name_at = data.index(b"DATA", 23 * 2048)
+    record_at = name_at - 33
+    data[record_at + 32] = len(name)
+    data[name_at : name_at + 4] = name.ljust(4, b"\x00")
+    bad.write_bytes(data)
+
+    assert_structural_failure(
+        checks(fixture=bad),
+        "invalid ISO9660 path component",
+    )
+
+
+def test_directory_record_claiming_bytes_past_extent_is_structural_red(tmp_path):
+    bad = tmp_path / "synthetic.iso"
+    data = bytearray((SYN / "synthetic.iso").read_bytes())
+    root_length_at = 16 * 2048 + 156 + 10
+    truncated_length = 190 + 36
+    struct.pack_into("<I", data, root_length_at, truncated_length)
+    struct.pack_into(">I", data, root_length_at + 4, truncated_length)
+    bad.write_bytes(data)
+
+    assert_structural_failure(
+        checks(fixture=bad),
+        "directory record claims 46 bytes with only 36 remaining",
+    )
+
+
+def _file_record(name: bytes, length: int) -> bytes:
+    record = bytearray(length)
+    record[0] = length
+    struct.pack_into("<I", record, 2, 30)
+    struct.pack_into(">I", record, 6, 30)
+    record[32] = len(name)
+    record[33 : 33 + len(name)] = name
+    return bytes(record)
+
+
+def test_directory_record_crossing_logical_block_is_structural_red(tmp_path):
+    bad = tmp_path / "synthetic.iso"
+    data = bytearray((SYN / "synthetic.iso").read_bytes())
+    root_length_at = 16 * 2048 + 156 + 10
+    struct.pack_into("<I", data, root_length_at, 4096)
+    struct.pack_into(">I", data, root_length_at + 4, 4096)
+
+    root_at = 23 * 2048
+    for index in range(8):
+        start = root_at + index * 254
+        data[start : start + 254] = _file_record(
+            f"F{index}".encode("ascii"),
+            254,
+        )
+    crossing_at = root_at + 8 * 254
+    data[crossing_at : crossing_at + 34] = _file_record(b"X", 34)
+    data[crossing_at + 34] = 0
+    bad.write_bytes(data)
+
+    assert_structural_failure(
+        checks(fixture=bad),
+        "directory record crosses logical block boundary",
+    )
 
 
 def test_sniff():

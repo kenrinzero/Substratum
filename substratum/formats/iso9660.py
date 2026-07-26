@@ -7,7 +7,8 @@ Scope — deliberately unit-bounded:
   identifiers (version suffix stripped), no Joliet/Rock Ridge resolution.
 - Refuses rather than guesses (structural red): multi-extent files,
   interleaved files, extended-attribute records, both-endian field
-  mismatches, directory cycles.
+  mismatches, truncated/cross-block directory records, invalid path
+  components, directory cycles.
 
 Runtime is stdlib-only per DESIGN.md § 4.
 """
@@ -43,6 +44,11 @@ def _both_endian_32(raw: bytes, what: str) -> int:
     return le
 
 
+def _validate_path_component(name: str) -> None:
+    if not name or name in {".", ".."} or "/" in name or "\\" in name:
+        raise ValueError(f"invalid ISO9660 path component {name!r}")
+
+
 def _walk(src: ByteSource, block: int, root_extent: int, root_len: int) -> list[FileEntry]:
     entries: list[FileEntry] = []
     seen: set[int] = set()
@@ -60,6 +66,19 @@ def _walk(src: ByteSource, block: int, root_extent: int, root_len: int) -> list[
                 # records never span sectors; a zero byte pads to the next one
                 pos = (pos // block + 1) * block
                 continue
+            remaining = data_len - pos
+            if rec_len > remaining:
+                raise ValueError(
+                    f"directory record claims {rec_len} bytes with only "
+                    f"{remaining} remaining at extent {extent}+{pos}"
+                )
+            block_remaining = block - (pos % block)
+            if rec_len > block_remaining:
+                raise ValueError(
+                    "directory record crosses logical block boundary at "
+                    f"extent {extent}+{pos} ({rec_len} bytes, "
+                    f"{block_remaining} remain)"
+                )
             rec = data[pos : pos + rec_len]
             if len(rec) < 34 or rec_len < 33 + rec[32]:
                 raise ValueError(f"truncated directory record at extent {extent}+{pos}")
@@ -80,6 +99,7 @@ def _walk(src: ByteSource, block: int, root_extent: int, root_len: int) -> list[
             name = fi.decode("latin-1")
             if not flags & _FLAG_DIR:
                 name = name.split(";", 1)[0]
+            _validate_path_component(name)
             path = prefix + name
             if flags & _FLAG_DIR:
                 entries.append(FileEntry(path, "dir", loc * block, size))
