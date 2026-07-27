@@ -8,6 +8,9 @@ extraction, VN text pipelines) never re-implement ISO9660 offsets or CHD
 decode. Foundation segment of the **Spolia** game-media program
 (Substratum → Stratum + Quarry → Kura → Interlinear).
 
+For a quick project orientation, see [`BACKLOG.md`](BACKLOG.md); detailed
+unit status and proof obligations remain in [`NORMALIZERS.md`](NORMALIZERS.md).
+
 A green means the tree is provably the *right* tree: fixture-matched,
 byte-stable, and — the check that bites — every sampled file read
 *through* the tree is byte-identical to an independent tool's extraction.
@@ -16,7 +19,7 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.11 (2026-07-26): the interface and manifest schema remain
+Version 0.0.11 (2026-07-27): the interface and manifest schema remain
 frozen, the public one-layer dispatcher is live, and eleven real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, and `3ds-ncch`.
