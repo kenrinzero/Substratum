@@ -76,9 +76,11 @@ load-bearing Wii-format finding is that FST file offsets are word offsets
 artifact, safe extraction/storage steps, and key-handling discipline.
 Encrypted/seeded NCCH and CIA remain deferred: the architecture is settled
 (ctrtool-at-runtime, retail keys compiled into vendored ctrtool v1.3.0) and
-blocked on one encrypted retail title as a `FIXTURE REQUEST` — see
-[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md). See `NORMALIZERS.md` for
-exact format bounds, fixture provenance, proof tools, and the dispatch order.
+the encrypted-NCCH fixture is fulfilled (Biohazard — The Mercenaries 3D
+`.cia`, standard crypto) — so `3ds-encrypted-ncch` is the next dispatchable
+unit. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md). See
+`NORMALIZERS.md` for exact format bounds, fixture provenance, proof tools,
+and the dispatch order.
 
 ## Use
 

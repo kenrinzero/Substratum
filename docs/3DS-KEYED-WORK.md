@@ -84,34 +84,56 @@ The encrypted-NCCH normalizer cannot be built or proven against Cubic Ninja
 (NoCrypto). It needs **one encrypted retail 3DS title** as a `FIXTURE
 REQUEST` anchor.
 
-### FIXTURE REQUEST: encrypted retail 3DS title
+### FIXTURE REQUEST: encrypted retail 3DS title — **FULFILLED 2026-07-29**
 
-- **One** game-card dump (`.3ds` / `.cci`) **or** eShop package (`.cia`),
-  any small title, sourced from a 3DS you own.
-- Must be **encrypted** — i.e. not NoCrypto. Verify before sourcing by
-  running, against any candidate file:
+Kenrin dropped **Biohazard — The Mercenaries 3D (Japan)** as a `.cia` into
+gitignored `fixtures/_local/`. Qualified via `ctrtool -i` (vendored v1.3.0,
+keys compiled in):
 
-  ```powershell
-  tools\ctrtool\ctrtool.exe -i "candidate.3ds"
-  ```
+- **File:** `fixtures/_local/Biohazard - The Mercenaries 3D (Japan).cia`
+  (698,837,440 bytes / 0x29A6F600 content)
+- **Title ID:** `0004000000043E00` (CTR, eShop/digital; product `CTR-P-BREJ`)
+- **Container:** CIA — `HeaderSize 0x2020`, `CertSize 0xA00`,
+  `TicketSize 0x350`, `TMDSize 0xB34`, `FooterSize 0x3AC0`, single content
+- **NCCH crypto:** `Flags 0000000001030000`, **`> Crypto Key Secure (0)`**
+  → standard crypto (`ncchflag[3] == 0x00`, keyslot `0x2C`) — exactly the
+  preferred first-unit variant. **Not** seed-encrypted
+  (`Title seed check 00000000`, no 9.6 flag).
+- **NCCH regions (encrypted on-media):** Exheader `0x400`;
+  ExeFS offset `0xC00` size `0x50FA00`; RomFS offset `0x510600` size
+  `0x2955F000`. ctrtool prints the NCCH-declared protected hashes
+  (Exheader/ExeFS/RomFS) for the differential gate.
+- **Content-flag note:** ctrtool reports the TMD `ContentInfo` as
+  `Encrypted: NO`, while the NCCH header itself is `Secure (0)`. This is the
+  known CIA/TMD-vs-NCCH-flag distinction (the TMD content-encryption flag
+  and the NCCH crypto-method are separate fields); the NCCH header is the
+  authoritative source and it is standard-encrypted. The normalizer must
+  treat the content as encrypted NCCH and decrypt via ctrtool.
 
-  An encrypted title's NCCH section shows `> Crypto Key` as something other
-  than `None`, and NCCH `Flags` byte index 3 (at header offset `0x18B`) is
-  nonzero. Cubic Ninja shows `> Crypto Key None` and is the contrast case.
+**How a future candidate is verified** (kept for any later anchor swap):
 
-- **Preferred: standard crypto (`ncchflag[3] == 0x00`)** for the first unit —
-  ctrtool decrypts it with no external key or seed. Avoid New3DS 9.6 seed
-  titles for the first unit (they additionally need `--seed=`/`--seeddb=`).
-- Drop the file into gitignored `fixtures/_local/`. Only provenance + a
-  metadata manifest commit; the title bytes never enter git or leave the
-  machine (DESIGN § 5, same posture as the Wii/Cubic Ninja anchors).
+```powershell
+tools\ctrtool\ctrtool.exe -i "candidate.3ds"
+```
+
+An encrypted title's NCCH section shows `> Crypto Key` as something other
+than `None` (this anchor shows `Secure (0)`); Cubic Ninja shows
+`> Crypto Key None` and is the contrast case. Standard crypto
+(`Secure (0)` / `ncchflag[3] == 0x00`) is preferred; New3DS 9.6 seed titles
+additionally need `--seed=`/`--seeddb=` and are deferred past this unit.
+
+The title bytes are gitignored and never enter git or leave the machine
+(DESIGN § 5, same posture as the Wii/Cubic Ninja anchors). **The decrypted
+titlekey value is not recorded here** — ctrtool prints it, but it stays out
+of docs/logs/manifests per key-discipline.
 
 ## Resume checklist
 
-When an encrypted title exists in `fixtures/_local/`:
+The encrypted retail anchor **is now in place** (Biohazard Mercenaries 3D,
+`.cia`, standard crypto). The encrypted-NCCH unit is dispatchable:
 
-1. Confirm its crypto variant with `ctrtool -i` (expect standard crypto for
-   the first unit; record the `ncchflag` values).
+1. Confirm the anchor's crypto variant with `ctrtool -i` (expect
+   `Secure (0)` standard crypto — already verified 2026-07-29).
 2. Take **encrypted-NCCH** as one normalizer session (`three_ds_ncch_enc.py`
    or an extension of `three_ds_ncch.py`). One unit = one session.
 3. Shell out to vendored ctrtool v1.3.0 for decryption; resolve the
@@ -126,8 +148,11 @@ When an encrypted title exists in `fixtures/_local/`:
 6. Commit no decrypted retail payloads or key bytes.
 7. **CIA** (the eShop container: TMD + ticket + content) is a *separate
    later* unit, not part of encrypted-NCCH — it parses a different container
-   and its content is the same encrypted NCCH this unit handles.
+   and its content is the same encrypted NCCH this unit handles. (The
+   Biohazard anchor is a `.cia`, so it can *also* serve the later CIA unit —
+   but CIA parsing is out of scope for the encrypted-NCCH unit, which
+   consumes the NCCH content layer.)
 
-Until then, encrypted/seeded NCCH and CIA remain deferred and Substratum is
-cleanly usable through the thirteen GREEN normalizers (the two 3DS units
-covering the decrypted layers).
+Until the encrypted-NCCH unit ships, encrypted/seeded NCCH and CIA remain
+deferred and Substratum is cleanly usable through the thirteen GREEN
+normalizers (the two 3DS units covering the decrypted layers).
