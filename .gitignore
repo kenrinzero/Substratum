@@ -32,6 +32,10 @@ fixtures/3ds_cci/cubic-ninja/reference/
 # 3DS decrypted NCCH anchor: independently extracted opaque regions stay
 # local; only the metadata manifest and provenance are committed.
 fixtures/3ds_ncch/cubic-ninja/reference/
+# 3DS encrypted-NCCH retail anchor: ctrtool/3dstool independently extracted
+# decrypted region references stay local; only the metadata manifest and
+# provenance are committed. No key bytes or decrypted retail payloads enter git.
+fixtures/3ds_ncch_enc/biohazard/reference/
 # Wii retail disc anchor: complete opaque encrypted partition references stay
 # local; only the metadata manifest and provenance are committed.
 fixtures/wii_disc/munchables/reference/

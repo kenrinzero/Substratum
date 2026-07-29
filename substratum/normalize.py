@@ -26,6 +26,10 @@ from substratum.formats.three_ds_ncch import (
     normalize_3ds_ncch,
     sniff as sniff_3ds_ncch,
 )
+from substratum.formats.three_ds_ncch_enc import (
+    normalize_3ds_ncch_enc,
+    sniff as sniff_3ds_ncch_enc,
+)
 from substratum.formats.wii_disc import (
     normalize_wii_disc,
     sniff as sniff_wii_disc,
@@ -60,6 +64,10 @@ class _Format:
 # precede PS1's path-bound BIN/CUE check because both use the CD sync pattern.
 _FORMATS = (
     _Format("3ds-cci", sniff_3ds_cci, normalize_3ds_cci),
+    # Encrypted NCCH must precede its decrypted sibling: an encrypted content's
+    # NCCH magic is plaintext, so both sniffers see it; this one accepts only
+    # the encrypted (standard-crypto) form and routes it to decryption.
+    _Format("3ds-ncch-enc", sniff_3ds_ncch_enc, normalize_3ds_ncch_enc),
     _Format("3ds-ncch", sniff_3ds_ncch, normalize_3ds_ncch),
     _Format("wii-disc", sniff_wii_disc, normalize_wii_disc),
     _Format("wii-partition", sniff_wii_partition, normalize_wii_partition),

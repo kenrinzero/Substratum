@@ -129,30 +129,26 @@ of docs/logs/manifests per key-discipline.
 
 ## Resume checklist
 
-The encrypted retail anchor **is now in place** (Biohazard Mercenaries 3D,
-`.cia`, standard crypto). The encrypted-NCCH unit is dispatchable:
+The encrypted-NCCH unit **shipped 2026-07-29** (`3ds-ncch-enc`, GREEN).
+Encrypted/seeded NCCH beyond standard crypto and CIA parsing remain the open
+deferred work:
 
-1. Confirm the anchor's crypto variant with `ctrtool -i` (expect
-   `Secure (0)` standard crypto — already verified 2026-07-29).
-2. Take **encrypted-NCCH** as one normalizer session (`three_ds_ncch_enc.py`
-   or an extension of `three_ds_ncch.py`). One unit = one session.
-3. Shell out to vendored ctrtool v1.3.0 for decryption; resolve the
-   executable via `SUBSTRATUM_CTRTOOL` → `PATH` → repo-local
-   `tools/ctrtool/ctrtool.exe` (same resolution order as `chd`/chdman).
-4. Author a synthetic encrypted-NCCH fixture (generated keys) for the
-   structural + round-trip checks, so the committed suite is not gated on
-   the retail drop.
-5. Conditional retail proof: ctrtool `-p` (plain, no decrypt) vs default
-   (decrypt) extraction at fixed offsets — the differential gate, ctrtool as
-   its own independent oracle across its two modes.
-6. Commit no decrypted retail payloads or key bytes.
-7. **CIA** (the eShop container: TMD + ticket + content) is a *separate
-   later* unit, not part of encrypted-NCCH — it parses a different container
-   and its content is the same encrypted NCCH this unit handles. (The
-   Biohazard anchor is a `.cia`, so it can *also* serve the later CIA unit —
-   but CIA parsing is out of scope for the encrypted-NCCH unit, which
-   consumes the NCCH content layer.)
+1. Standard-encrypted NCCH (`ncchflag[3] == 0x00`, keyslot `0x2C`) is DONE —
+   `substratum/formats/three_ds_ncch_enc.py` decrypts via vendored ctrtool into
+   a `ByteView` the caller composes through `three_ds_ncch`.
+2. **7.x secured / New3DS 9.3 crypto** (`ncchflag[3]` in `{0x01, 0x0A}`) is the
+   next widening — ctrtool handles it with the same command, but a fixture is
+   needed to exercise it.
+3. **Seed-encrypted (New3DS 9.6)** additionally needs `--seed=`/`--seeddb=` and
+   is still deferred past a fixture.
+4. **CIA container parsing** (TMD + ticket + content) is a *separate* unit
+   whose content is the same encrypted NCCH this unit already handles; the
+   Biohazard anchor can serve it.
 
-Until the encrypted-NCCH unit ships, encrypted/seeded NCCH and CIA remain
-deferred and Substratum is cleanly usable through the thirteen GREEN
-normalizers (the two 3DS units covering the decrypted layers).
+The load-bearing empirical findings from the encrypted-NCCH unit (recorded
+2026-07-29): the NCCH header at 0x100 is plaintext even in an encrypted title;
+ctrtool's `-p` flag is NOT a differential (it returns encrypted bytes and errors
+on the encrypted ExeFS header) — the genuine two-party oracle is ctrtool-decrypt
+vs 3dstool-decrypt; and no committed encrypted synthetic is authorable without
+retail key material, so the committed fixture is a decrypted NoCrypto NCCH and
+the decrypt+differential is carried by the retail anchor.

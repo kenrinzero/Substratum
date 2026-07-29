@@ -7,12 +7,12 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.13** is clean at `bd03e24`. The
-complete Wii chain is end-to-end GREEN: **13 normalizers** cover outer
-partition tables (`wii-disc`), AES-CBC cluster decode (`wii-partition`), and
-the decrypted FST filesystem (`wii-fst`). The encrypted-3DS track is
-**READY** (architecture settled, fixture fulfilled) — `3ds-encrypted-ncch`
-is the next dispatchable unit.
+Version **0.0.14** is clean (post-`3ds-ncch-enc`). **14 normalizers** are
+GREEN, including the complete Wii chain (`wii-disc` → `wii-partition` →
+`wii-fst`) and the standard-encrypted 3DS NCCH layer (`3ds-ncch-enc`, which
+decrypts via vendored ctrtool into a `ByteView` the caller composes through
+`three_ds_ncch`). The remaining deferred work is **CIA container parsing** and
+the wider 3DS crypto variants (7.x / 9.3 / seed-encrypted).
 
 ## Done
 
@@ -31,34 +31,33 @@ is the next dispatchable unit.
       locally and never committed.
 
 - [x] **Wii decrypted FST (`wii-fst`):** walks the decrypted DATA-partition
-      `ByteView` into a `FileTree` of 53 entries (50 files + 3 dirs). The
-      load-bearing Wii-format finding: FST file offsets are word offsets
-      (`<< 2`), unlike GameCube's byte offsets. Synthetic nested fixture +
-      wit-listing retail proof against The Munchables. Completes the Wii
-      chain: `wii-disc` → `wii-partition` → `wii-fst`.
+      `ByteView` into a `FileTree`. Completes the Wii chain:
+      `wii-disc` → `wii-partition` → `wii-fst`.
+
+- [x] **Encrypted 3DS NCCH (`3ds-ncch-enc`):** ctrtool-at-runtime decrypts
+      standard-encrypted NCCH content into a decrypted `ByteView` the caller
+      composes through `three_ds_ncch` (the `chd`→`iso9660` pattern applied to
+      3DS). Genuine two-party differential: ctrtool-decrypt vs 3dstool-decrypt
+      on the Biohazard Mercenaries 3D anchor (byte-identical regions); NCCH
+      protected hashes are the independent correctness anchor. Standard crypto
+      only; 7.x/9.3/seed refused.
 
 - [x] **Proof and hardening pass:** independent-tool differential checks,
       retail/homebrew anchors, path and header rejection, streaming and
       memory-discipline protections, and pinned tool versions are recorded in
       `NORMALIZERS.md` and the archived project log.
 
-- [x] **Wii outer layer:** `wii-disc` exposes opaque encrypted partition
-      slices without crossing the one-layer composition boundary.
-
-- [x] **Keyed-work handoff:** `docs/WII-KEYED-WORK.md` records the exact key
-      artifact, safe gitignored storage, environment boundary, and resume
-      checklist without storing key material or its digest.
-
 ## Next (in dispatch order)
 
-- [ ] **`3ds-encrypted-ncch` (next unit):** architecture settled
-      (ctrtool-at-runtime; retail keys compiled into vendored ctrtool
-      v1.3.0; consistent with `chd`→chdman per DESIGN § 4) **and fixture
-      fulfilled** — Biohazard — The Mercenaries 3D (Japan) `.cia` dropped in
-      gitignored `fixtures/_local/` (standard crypto `Secure (0)`, not
-      seed-encrypted). Cubic Ninja (NoCrypto) stays the decrypted-path
-      anchor. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) for the
-      full resume checklist. CIA is a separate later unit.
+- [ ] **`cia` (next unit):** CIA container parsing (TMD + ticket + content).
+      The content layer is the same encrypted NCCH `3ds-ncch-enc` already
+      handles; this unit parses the CIA wrapper and exposes the NCCH content
+      slice. The Biohazard anchor can serve it.
+
+- [ ] **Wider 3DS NCCH crypto:** 7.x (`0x25`) and New3DS 9.3 (`0x18`)
+      variants — ctrtool handles them with the same command; needs fixtures to
+      exercise. Seed-encrypted (New3DS 9.6, `0x1B`) additionally needs
+      `--seed=`/`--seeddb=`.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and
