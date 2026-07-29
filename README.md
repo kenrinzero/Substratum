@@ -19,12 +19,12 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.15 (2026-07-29): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and fifteen real
+Version 0.0.16 (2026-07-29): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and sixteen real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, `3ds-ncch`,
 the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`),
-`3ds-ncch-enc`, and `cia`. Every unit runs
+`3ds-ncch-enc`, `cia`, and `3ds-ncch-enc-seed`. Every unit runs
 through the same four-check
 structural, manifest,
 round-trip, and byte-fidelity gate; the large GameCube fixtures also carry

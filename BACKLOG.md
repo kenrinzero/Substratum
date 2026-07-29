@@ -7,12 +7,11 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.15** is clean (post-`cia`). **15 normalizers** are GREEN: the
-keyless/decrypted floor, the complete Wii chain (`wii-disc` → `wii-partition`
-→ `wii-fst`), the standard-encrypted 3DS NCCH layer (`3ds-ncch-enc`), and now
-the CIA install container (`cia`). The 3DS stack is complete from the outer
-container through to the decrypted NCCH regions. The remaining deferred work
-is the wider 3DS crypto variants (7.x / 9.3 / seed-encrypted).
+Version **0.0.16** is clean (post-`3ds-ncch-enc-seed`). **16 normalizers**
+are GREEN: the keyless/decrypted floor, the complete Wii chain, the CIA
+container, and both 3DS encrypted-NCCH variants — standard crypto
+(`3ds-ncch-enc`) and 7.x-seed (`3ds-ncch-enc-seed`). The remaining deferred
+work is the rarer 3DS crypto variants: plain 7.x (no seed), 9.3, and 9.6.
 
 ## Done
 
@@ -48,6 +47,12 @@ is the wider 3DS crypto variants (7.x / 9.3 / seed-encrypted).
       records' declared SHA-256 is the correctness anchor. Completes the 3DS
       stack from outer container to decrypted NCCH regions.
 
+- [x] **7.x-seed encrypted NCCH (`3ds-ncch-enc-seed`):** decrypts
+      `Secure (1) (KeyY seeded)` NCCH content inside a CIA via vendored ctrtool
+      (7.x keyslot `0x25` compiled in) + the operator-supplied seeddb. Consumes
+      a whole CIA (the variant encrypts the NCCH header itself, so a raw slice
+      can't be decrypted). Two retail anchors: BoxBoxBoy + Mini Sports.
+
 - [x] **Proof and hardening pass:** independent-tool differential checks,
       retail/homebrew anchors, path and header rejection, streaming and
       memory-discipline protections, and pinned tool versions are recorded in
@@ -55,10 +60,10 @@ is the wider 3DS crypto variants (7.x / 9.3 / seed-encrypted).
 
 ## Next (in dispatch order)
 
-- [ ] **Wider 3DS NCCH crypto:** 7.x (`0x25`) and New3DS 9.3 (`0x18`)
-      variants — ctrtool handles them with the same command; needs fixtures to
-      exercise. Seed-encrypted (New3DS 9.6, `0x1B`) additionally needs
-      `--seed=`/`--seeddb=`.
+- [ ] **Remaining 3DS NCCH crypto variants:** plain 7.x (`0x25`, no seed),
+      New3DS 9.3 (`0x18`), and New3DS 9.6 seed (`0x1B`). Each needs an
+      encrypted retail anchor; the seeddb is already parked for 9.6. These are
+      rarer variants (later New3DS titles) and the architecture generalizes.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and

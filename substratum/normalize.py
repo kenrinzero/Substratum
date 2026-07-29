@@ -34,6 +34,10 @@ from substratum.formats.three_ds_ncch_enc import (
     normalize_3ds_ncch_enc,
     sniff as sniff_3ds_ncch_enc,
 )
+from substratum.formats.three_ds_ncch_enc_seed import (
+    normalize_3ds_ncch_enc_seed,
+    sniff as sniff_3ds_ncch_enc_seed,
+)
 from substratum.formats.wii_disc import (
     normalize_wii_disc,
     sniff as sniff_wii_disc,
@@ -69,6 +73,7 @@ class _Format:
 _FORMATS = (
     _Format("3ds-cci", sniff_3ds_cci, normalize_3ds_cci),
     _Format("cia", sniff_3ds_cia, normalize_3ds_cia),
+    _Format("3ds-ncch-enc-seed", sniff_3ds_ncch_enc_seed, normalize_3ds_ncch_enc_seed),
     # Encrypted NCCH must precede its decrypted sibling: an encrypted content's
     # NCCH magic is plaintext, so both sniffers see it; this one accepts only
     # the encrypted (standard-crypto) form and routes it to decryption.

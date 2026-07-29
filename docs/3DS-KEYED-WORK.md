@@ -157,26 +157,40 @@ of docs/logs/manifests per key-discipline.
 
 ## Resume checklist
 
-The encrypted-NCCH unit **shipped 2026-07-29** (`3ds-ncch-enc`, GREEN).
-Encrypted/seeded NCCH beyond standard crypto and CIA parsing remain the open
-deferred work:
+The standard-encrypted NCCH unit shipped 2026-07-29 (`3ds-ncch-enc`, GREEN),
+CIA container parsing shipped 2026-07-29 (`cia`, GREEN), and the **7.x-seed**
+variant shipped 2026-07-29 (`3ds-ncch-enc-seed`, GREEN). The open deferred
+work is the rarer 3DS crypto variants:
 
-1. Standard-encrypted NCCH (`ncchflag[3] == 0x00`, keyslot `0x2C`) is DONE —
-   `substratum/formats/three_ds_ncch_enc.py` decrypts via vendored ctrtool into
-   a `ByteView` the caller composes through `three_ds_ncch`.
-2. **7.x secured / New3DS 9.3 crypto** (`ncchflag[3]` in `{0x01, 0x0A}`) is the
-   next widening — ctrtool handles it with the same command, but a fixture is
-   needed to exercise it.
-3. **Seed-encrypted (New3DS 9.6)** additionally needs `--seed=`/`--seeddb=` and
-   is still deferred past a fixture.
-4. **CIA container parsing** (TMD + ticket + content) is a *separate* unit
-   whose content is the same encrypted NCCH this unit already handles; the
-   Biohazard anchor can serve it.
+1. Standard-encrypted NCCH (`ncchflag[3] == 0x00`, keyslot `0x2C`) — DONE.
+2. **7.x-seed** (`ncchflag[3] == 0x01` + seed bit, keyslot `0x25`,
+   `Crypto Key Secure (1) (KeyY seeded)`) — DONE.
+   `substratum/formats/three_ds_ncch_enc_seed.py` decrypts via vendored
+   ctrtool + the operator-supplied seeddb. Anchors: BoxBoxBoy + Mini Sports.
+3. **Plain 7.x** (`ncchflag[3] == 0x01`, no seed bit) — needs an encrypted
+   retail anchor. Architecturally near-identical to the seed variant minus
+   the seeddb; a candidate shows `> Crypto Key Secure (1)` with a zero
+   `Title seed check`.
+4. **New3DS 9.3** (`ncchflag[3] == 0x0A`, keyslot `0x18`) — needs an
+   encrypted retail anchor; ctrtool has the keyslot compiled in.
+5. **New3DS 9.6 seed** (`ncchflag[3] == 0x0B`, keyslot `0x1B`) — needs an
+   encrypted retail anchor; the seeddb is already parked.
 
-The load-bearing empirical findings from the encrypted-NCCH unit (recorded
-2026-07-29): the NCCH header at 0x100 is plaintext even in an encrypted title;
-ctrtool's `-p` flag is NOT a differential (it returns encrypted bytes and errors
-on the encrypted ExeFS header) — the genuine two-party oracle is ctrtool-decrypt
-vs 3dstool-decrypt; and no committed encrypted synthetic is authorable without
-retail key material, so the committed fixture is a decrypted NoCrypto NCCH and
-the decrypt+differential is carried by the retail anchor.
+### Load-bearing empirical findings
+
+From the standard-crypto unit: the NCCH header at 0x100 is plaintext for
+**standard** crypto; ctrtool's `-p` flag is NOT a differential (it returns
+encrypted bytes) — the genuine two-party oracle is ctrtool-decrypt vs
+3dstool-decrypt; and no committed encrypted synthetic is authorable without
+retail key material, so the committed fixture is a decrypted NoCrypto NCCH.
+
+From the 7.x-seed unit (the load-bearing new finding): **the 7.x-seed variant
+encrypts the NCCH header itself** — the magic at 0x100 is ciphertext, not
+plaintext. Two consequences: (1) ctrtool cannot decrypt a raw 7.x-seed NCCH
+slice in isolation (it needs the CIA's ticket to decrypt the header first), so
+the normalizer consumes a **whole CIA**, not a slice; (2) ctrtool exposes the
+decrypted regions but not the decrypted header, so the normalizer reconstructs
+the 0x200 header from ctrtool's parsed report. 3dstool cannot serve as a
+second-party decryptor for 7.x-seed (it handles neither the CIA nor a raw
+7.x-seed slice), so the NCCH-declared protected SHA-256 hashes — validated by
+composing through `three_ds_ncch` — carry the correctness proof on their own.
