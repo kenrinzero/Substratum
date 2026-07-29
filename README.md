@@ -19,11 +19,12 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.12 (2026-07-29): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and twelve real
+Version 0.0.13 (2026-07-29): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and thirteen real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, and `3ds-ncch`.
-The eleventh is `wii-disc`; the twelfth is `wii-partition`. Every unit runs
+The eleventh through thirteenth form the complete Wii chain: `wii-disc` →
+`wii-partition` → `wii-fst`. Every unit runs
 through the same four-check
 structural, manifest,
 round-trip, and byte-fidelity gate; the large GameCube fixtures also carry
@@ -66,8 +67,11 @@ independently verifies both signed partitions and authors their boundaries.
 0x7C00-byte cluster payloads using a pure-Python AES-128-CBC (NIST SP 800-38A
 anchored) — the title key is derived from the ticket with the operator-supplied
 standard Wii common key (`SUBSTRATUM_WII_COMMON_KEY_FILE`), which is never
-committed, hashed, or logged. The decrypted Wii FST (`wii-fst`) follows that
-ByteView as the next unit. See
+committed, hashed, or logged. `wii-fst` walks that decrypted `ByteView`'s FST
+into a `FileTree` of user-data files (50 files + 3 dirs on The Munchables); the
+load-bearing Wii-format finding is that FST file offsets are word offsets
+(`<< 2`), unlike GameCube's byte offsets. The complete Wii chain — `wii-disc`
+→ `wii-partition` → `wii-fst` — is end-to-end green. See
 [`docs/WII-KEYED-WORK.md`](docs/WII-KEYED-WORK.md) for the exact local key
 artifact, safe extraction/storage steps, and key-handling discipline.
 Encrypted/seeded NCCH and CIA remain deferred. See `NORMALIZERS.md` for exact

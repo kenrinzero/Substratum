@@ -1,0 +1,1 @@
+{"files/a.bin": {"fill": "AA", "offset": 1088, "size": 16}, "files/b.dat": {"fill": "BB", "offset": 1104, "size": 32}, "files/sub/c.txt": {"fill": "CC", "offset": 1136, "size": 8}}

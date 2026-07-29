@@ -7,10 +7,11 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.12** is clean at `34cb474` (implementation pending commit). The
-keyless/decrypted floor plus keyed Wii partition decode is complete: **12
-normalizers are GREEN**. `wii-fst` is the next READY unit — it walks the
-decrypted DATA-partition `ByteView` that `wii-partition` now produces.
+Version **0.0.13** is clean at `050bd00` (implementation pending commit). The
+complete Wii chain is end-to-end GREEN: **13 normalizers** cover outer
+partition tables (`wii-disc`), AES-CBC cluster decode (`wii-partition`), and
+the decrypted FST filesystem (`wii-fst`). The remaining deferred formats are
+encrypted/seeded 3DS.
 
 ## Done
 
@@ -21,6 +22,19 @@ decrypted DATA-partition `ByteView` that `wii-partition` now produces.
 - [x] **Keyless/decrypted normalizer floor:** 11 GREEN units — `iso9660`,
       `gc-fst`, `chd`, `ps1-bincue`, `saturn/dc-raw`, `cso`, `wii-u8-arc`,
       `xdvdfs`, `3ds-cci`, `3ds-ncch`, and `wii-disc`.
+
+- [x] **Wii partition decode (`wii-partition`):** pure-Python AES-128-CBC
+      (NIST SP 800-38A anchored) decrypts the title key and cluster payloads
+      into a lazy `ByteView`; synthetic generated-key fixture + wit-extracted
+      retail proof against The Munchables. Standard common key supplied
+      locally and never committed.
+
+- [x] **Wii decrypted FST (`wii-fst`):** walks the decrypted DATA-partition
+      `ByteView` into a `FileTree` of 53 entries (50 files + 3 dirs). The
+      load-bearing Wii-format finding: FST file offsets are word offsets
+      (`<< 2`), unlike GameCube's byte offsets. Synthetic nested fixture +
+      wit-listing retail proof against The Munchables. Completes the Wii
+      chain: `wii-disc` → `wii-partition` → `wii-fst`.
 
 - [x] **Proof and hardening pass:** independent-tool differential checks,
       retail/homebrew anchors, path and header rejection, streaming and
@@ -34,18 +48,7 @@ decrypted DATA-partition `ByteView` that `wii-partition` now produces.
       artifact, safe gitignored storage, environment boundary, and resume
       checklist without storing key material or its digest.
 
-- [x] **Wii partition decode (`wii-partition`):** pure-Python AES-128-CBC
-      (NIST SP 800-38A anchored) decrypts the title key and cluster payloads
-      into a lazy `ByteView`; synthetic generated-key fixture + wit-extracted
-      retail proof against The Munchables. Standard common key supplied
-      locally and never committed.
-
 ## Next (in dispatch order)
-
-- [ ] **`wii-fst` — decrypted filesystem:** walk the `wii-partition` decoded
-      DATA-partition `ByteView` as a separate `FileTree` normalizer. wit's
-      53-entry user tree and 61-file extraction corpus for The Munchables are
-      already independently qualified; the decrypted stream is now available.
 
 - [ ] **Revisit deferred formats:** encrypted or seeded 3DS formats remain
       explicitly deferred until their fixture and key-provider plan is

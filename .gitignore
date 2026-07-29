@@ -39,4 +39,7 @@ fixtures/wii_disc/munchables/reference/
 # reference regions stay local; only the metadata manifest and provenance are
 # committed. No key bytes or decrypted retail payloads enter git.
 fixtures/wii_partition/munchables/reference/
+# Wii FST retail anchor: wit's independently extracted decrypted DATA-partition
+# file payloads stay local; only the metadata manifest commits.
+fixtures/wii_fst/munchables/reference/
 tools/
