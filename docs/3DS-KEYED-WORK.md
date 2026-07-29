@@ -167,10 +167,20 @@ work is the rarer 3DS crypto variants:
    `Crypto Key Secure (1) (KeyY seeded)`) — DONE.
    `substratum/formats/three_ds_ncch_enc_seed.py` decrypts via vendored
    ctrtool + the operator-supplied seeddb. Anchors: BoxBoxBoy + Mini Sports.
-3. **Plain 7.x** (`ncchflag[3] == 0x01`, no seed bit) — needs an encrypted
-   retail anchor. Architecturally near-identical to the seed variant minus
-   the seeddb; a candidate shows `> Crypto Key Secure (1)` with a zero
-   `Title seed check`.
+3. **Plain 7.x** (`ncchflag[3] == 0x01`, no seed bit, `Crypto Key Secure (1)`
+   with no "(KeyY seeded)" suffix) — **fixture fulfilled 2026-07-29; next
+   dispatchable unit.** Retail anchor parked at gitignored
+   `fixtures/_local/3DS1333 - Kobayashi ga Kawai Sugite Tsurai!! Game Demo Kyun
+   Moe MAX ga Tomara Nai (Japan).3ds` (CCI/`.3ds`, title ID
+   `0004000000168700`, product `CTR-P-BKQJ`, `Title seed check 00000000`,
+   verified `Secure (1)` no-seed). **Architecturally close to `3ds-ncch-enc`,
+   NOT to `3ds-ncch-enc-seed`** — plain 7.x has a *plaintext* NCCH header
+   (magic at 0x100 is `NCCH`), so it is slice-decryptable and consumes a raw
+   NCCH slice (sliced from the CCI via `3ds-cci`), not a whole CIA. The only
+   difference from standard crypto is `ncchflag[3]==0x01` (keyslot `0x25`)
+   instead of `0x00` (`0x2C`); ctrtool handles it with the same command and
+   no seeddb. Likely implementation: widen `3ds-ncch-enc`'s sniff + scope
+   (accept `ncchflag[3]` in `{0x00, 0x01}` no-seed) rather than a new module.
 4. **New3DS 9.3** (`ncchflag[3] == 0x0A`, keyslot `0x18`) — needs an
    encrypted retail anchor; ctrtool has the keyslot compiled in.
 5. **New3DS 9.6 seed** (`ncchflag[3] == 0x0B`, keyslot `0x1B`) — needs an

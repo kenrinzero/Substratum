@@ -60,10 +60,21 @@ work is the rarer 3DS crypto variants: plain 7.x (no seed), 9.3, and 9.6.
 
 ## Next (in dispatch order)
 
-- [ ] **Remaining 3DS NCCH crypto variants:** plain 7.x (`0x25`, no seed),
-      New3DS 9.3 (`0x18`), and New3DS 9.6 seed (`0x1B`). Each needs an
-      encrypted retail anchor; the seeddb is already parked for 9.6. These are
-      rarer variants (later New3DS titles) and the architecture generalizes.
+- [ ] **Plain-7.x encrypted NCCH (next unit, fixture fulfilled):** the
+      remaining 7.x sub-variant — `Crypto Key Secure (1)` with **no** seed
+      (`ncchflag[3] == 0x01`, seed bit clear, keyslot `0x25`). Retail anchor
+      parked at gitignored `fixtures/_local/3DS1333 - Kobayashi ga Kawai
+      Sugite Tsurai!! … (Japan).3ds` (title ID `0004000000168700`, verified
+      `Secure (1)` no-seed). Architecturally close to `3ds-ncch-enc` (NOT
+      `3ds-ncch-enc-seed`): plain 7.x has a *plaintext* NCCH header, so it is
+      slice-decryptable and consumes a raw NCCH slice (via `3ds-cci`), not a
+      whole CIA. Likely a sniff/scope widening of `3ds-ncch-enc` to accept
+      `ncchflag[3]` in `{0x00, 0x01}` (no-seed). See
+      [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § Resume checklist.
+
+- [ ] **New3DS 9.3 / 9.6-seed variants:** `ncchflag[3]` `0x0A` / `0x1B`. Each
+      needs an encrypted retail anchor; the seeddb is already parked for 9.6.
+      Rarer variants (later New3DS titles); the architecture generalizes.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and
