@@ -74,8 +74,11 @@ load-bearing Wii-format finding is that FST file offsets are word offsets
 → `wii-partition` → `wii-fst` — is end-to-end green. See
 [`docs/WII-KEYED-WORK.md`](docs/WII-KEYED-WORK.md) for the exact local key
 artifact, safe extraction/storage steps, and key-handling discipline.
-Encrypted/seeded NCCH and CIA remain deferred. See `NORMALIZERS.md` for exact
-format bounds, fixture provenance, proof tools, and the dispatch order.
+Encrypted/seeded NCCH and CIA remain deferred: the architecture is settled
+(ctrtool-at-runtime, retail keys compiled into vendored ctrtool v1.3.0) and
+blocked on one encrypted retail title as a `FIXTURE REQUEST` — see
+[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md). See `NORMALIZERS.md` for
+exact format bounds, fixture provenance, proof tools, and the dispatch order.
 
 ## Use
 

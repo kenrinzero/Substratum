@@ -50,9 +50,13 @@ encrypted/seeded 3DS.
 
 ## Next (in dispatch order)
 
-- [ ] **Revisit deferred formats:** encrypted or seeded 3DS formats remain
-      explicitly deferred until their fixture and key-provider plan is
-      selected.
+- [ ] **encrypted-NCCH (3DS):** architecture settled 2026-07-29 —
+      ctrtool-at-runtime (retail keys compiled into vendored ctrtool v1.3.0;
+      consistent with `chd`→chdman per DESIGN § 4). **Blocked on a FIXTURE
+      REQUEST** for one encrypted retail 3DS title — Cubic Ninja is NoCrypto
+      and can't exercise decryption. See
+      [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) for the exact spec.
+      CIA is a separate later unit.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and
