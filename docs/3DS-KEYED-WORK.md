@@ -78,6 +78,34 @@ future path that loads it:
 The keyfile stays gitignored; its bytes are never hashed, logged, echoed, or
 committed. Code reports only whether the file exists and is well-formed.
 
+> **Second keyset parked (2026-07-29).** A second `aes_keys.txt` (9,912 B,
+> larger than the retrobios one's 4,965 B — a superset) was supplied via the
+> Internet Archive item
+> [`Nintendo-3DS-BIOS-DSP-Aes-Keys-SeedDB-Font`](https://archive.org/details/Nintendo-3DS-BIOS-DSP-Aes-Keys-SeedDB-Font)
+> and parked at gitignored `fixtures/_local/aes_keys_ia.txt` (distinct name so
+> it does not clobber the retrobios file). Same key-discipline applies: never
+> hashed/logged/committed; structure-only. Neither is consumed by ctrtool
+> v1.3.0; both are parked for the future pure-Python path.
+
+### SeedDB parked (for New3DS 9.6 seed crypto)
+
+Seed-encrypted NCCH (New3DS 9.6, `ncchflag[3] == 0x0B`, keyslot `0x1B`)
+needs a per-title **seed** resolved from a **seeddb**. The 9.6 unit is
+therefore the one variant that requires a second keyed artifact beyond a
+retail title. A `seeddb.bin` (59,568 bytes; 1,861 seed records) was supplied
+from the same Internet Archive item and parked at gitignored
+`fixtures/_local/seeddb.bin`. ctrtool v1.3.0 accepts it via
+`--seeddb=<path>` (verified — it loads cleanly), so the 9.6 normalizer will
+pass the path through to ctrtool rather than reading the seeddb itself.
+
+**Key-discipline boundary for the 9.6 unit** (mirrors the Wii common key and
+the parked keysets): the seeddb lives only at `fixtures/_local/seeddb.bin`,
+named by an operator env var (e.g. `SUBSTRATUM_CTRTOOL_SEEDDB`); code reports
+only whether the file exists, never its contents; its bytes are never hashed,
+logged, echoed, or committed. The 7.x (`0x25`) and New3DS 9.3 (`0x18`)
+variants need **no** extra artifact — ctrtool decrypts them with compiled-in
+keys via the same command used for standard crypto.
+
 ## Fixture required to resume
 
 The encrypted-NCCH normalizer cannot be built or proven against Cubic Ninja
