@@ -7,7 +7,7 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.13** is clean at `050bd00` (implementation pending commit). The
+Version **0.0.13** is clean at `a1b63b3`. The
 complete Wii chain is end-to-end GREEN: **13 normalizers** cover outer
 partition tables (`wii-disc`), AES-CBC cluster decode (`wii-partition`), and
 the decrypted FST filesystem (`wii-fst`). The remaining deferred formats are
