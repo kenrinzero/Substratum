@@ -22,6 +22,10 @@ from substratum.formats.three_ds_cci import (
     normalize_3ds_cci,
     sniff as sniff_3ds_cci,
 )
+from substratum.formats.three_ds_cia import (
+    normalize_3ds_cia,
+    sniff as sniff_3ds_cia,
+)
 from substratum.formats.three_ds_ncch import (
     normalize_3ds_ncch,
     sniff as sniff_3ds_ncch,
@@ -64,6 +68,7 @@ class _Format:
 # precede PS1's path-bound BIN/CUE check because both use the CD sync pattern.
 _FORMATS = (
     _Format("3ds-cci", sniff_3ds_cci, normalize_3ds_cci),
+    _Format("cia", sniff_3ds_cia, normalize_3ds_cia),
     # Encrypted NCCH must precede its decrypted sibling: an encrypted content's
     # NCCH magic is plaintext, so both sniffers see it; this one accepts only
     # the encrypted (standard-crypto) form and routes it to decryption.

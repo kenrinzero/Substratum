@@ -7,12 +7,12 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.14** is clean (post-`3ds-ncch-enc`). **14 normalizers** are
-GREEN, including the complete Wii chain (`wii-disc` → `wii-partition` →
-`wii-fst`) and the standard-encrypted 3DS NCCH layer (`3ds-ncch-enc`, which
-decrypts via vendored ctrtool into a `ByteView` the caller composes through
-`three_ds_ncch`). The remaining deferred work is **CIA container parsing** and
-the wider 3DS crypto variants (7.x / 9.3 / seed-encrypted).
+Version **0.0.15** is clean (post-`cia`). **15 normalizers** are GREEN: the
+keyless/decrypted floor, the complete Wii chain (`wii-disc` → `wii-partition`
+→ `wii-fst`), the standard-encrypted 3DS NCCH layer (`3ds-ncch-enc`), and now
+the CIA install container (`cia`). The 3DS stack is complete from the outer
+container through to the decrypted NCCH regions. The remaining deferred work
+is the wider 3DS crypto variants (7.x / 9.3 / seed-encrypted).
 
 ## Done
 
@@ -42,17 +42,18 @@ the wider 3DS crypto variants (7.x / 9.3 / seed-encrypted).
       protected hashes are the independent correctness anchor. Standard crypto
       only; 7.x/9.3/seed refused.
 
+- [x] **CIA install container (`cia`):** parses the header-driven section table
+      and exposes each section (header/certs/ticket/tmd/content blobs/footer)
+      as an opaque slice. Full multi-content support; the TMD content-chunk
+      records' declared SHA-256 is the correctness anchor. Completes the 3DS
+      stack from outer container to decrypted NCCH regions.
+
 - [x] **Proof and hardening pass:** independent-tool differential checks,
       retail/homebrew anchors, path and header rejection, streaming and
       memory-discipline protections, and pinned tool versions are recorded in
       `NORMALIZERS.md` and the archived project log.
 
 ## Next (in dispatch order)
-
-- [ ] **`cia` (next unit):** CIA container parsing (TMD + ticket + content).
-      The content layer is the same encrypted NCCH `3ds-ncch-enc` already
-      handles; this unit parses the CIA wrapper and exposes the NCCH content
-      slice. The Biohazard anchor can serve it.
 
 - [ ] **Wider 3DS NCCH crypto:** 7.x (`0x25`) and New3DS 9.3 (`0x18`)
       variants — ctrtool handles them with the same command; needs fixtures to

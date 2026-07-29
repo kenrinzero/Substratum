@@ -19,12 +19,12 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.14 (2026-07-29): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and fourteen real
+Version 0.0.15 (2026-07-29): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and fifteen real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, `3ds-ncch`,
-the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`), and
-`3ds-ncch-enc`. Every unit runs
+the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`),
+`3ds-ncch-enc`, and `cia`. Every unit runs
 through the same four-check
 structural, manifest,
 round-trip, and byte-fidelity gate; the large GameCube fixtures also carry
@@ -76,11 +76,12 @@ load-bearing Wii-format finding is that FST file offsets are word offsets
 artifact, safe extraction/storage steps, and key-handling discipline.
 Encrypted/seeded NCCH and CIA remain deferred: the architecture is settled
 (ctrtool-at-runtime, retail keys compiled into vendored ctrtool v1.3.0) and
-the standard-encrypted NCCH layer is **GREEN** (`3ds-ncch-enc` decrypts via
-ctrtool into a `ByteView` the caller composes through `three_ds_ncch`).
+the standard-encrypted NCCH layer and the CIA install container are **GREEN**
+(`3ds-ncch-enc` decrypts via ctrtool into a `ByteView` the caller composes
+through `three_ds_ncch`; `cia` parses the outer container into opaque section
+slices whose content blob a caller re-normalizes through `3ds-ncch-enc`).
 `3ds-ncch-enc` covers standard crypto (`Secure (0)`, keyslot `0x2C`) only;
-7.x / 9.3 / seed variants and CIA container parsing are the open deferred
-work. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) for the
+7.x / 9.3 / seed variants remain the open deferred work. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) for the
 crypto hierarchy, key-discipline notes, and the resume checklist. See
 `NORMALIZERS.md` for exact format bounds, fixture provenance, proof tools,
 and the dispatch order.
