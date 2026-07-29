@@ -1,0 +1,42 @@
+{
+  "generator": "stage_wii_partition_retail_anchor v1",
+  "layout": "GC/Wii decrypted DATA partition (yagcd/wiibrew)",
+  "oracle": {
+    "method": "wit extract \u2014 full independent decrypt + FST extract",
+    "wit": "Wiimms ISO Tool v3.05a r8638 cygwin64 - Dirk Clemens - 2022-08-27"
+  },
+  "samples": [
+    {
+      "decrypted_offset": 0,
+      "description": "disc header (0x440)",
+      "path": "boot.bin",
+      "sha256": "3ba3a3f41c0530e9d86ecc8bb5e6a5197d18ba0d075acd26caa61740a039d0ef",
+      "size": 1088,
+      "source": "sys/boot.bin"
+    },
+    {
+      "decrypted_offset": 1088,
+      "description": "region settings (0x2000)",
+      "path": "bi2.bin",
+      "sha256": "e43ff23c01e65a86f82488345ca8aadabd8357d0dbeb83cf915c7d11b114dd9c",
+      "size": 8192,
+      "source": "sys/bi2.bin"
+    },
+    {
+      "decrypted_offset": 9280,
+      "description": "apploader",
+      "path": "apploader.img",
+      "sha256": "802e92553d26a17481558328a524192ba1dc32a4b939b8d13de2d5eb116ff36f",
+      "size": 245628,
+      "source": "sys/apploader.img"
+    }
+  ],
+  "source_iso": {
+    "data_partition": {
+      "offset": 260046848,
+      "size": 4424728576
+    },
+    "name": "The Munchables (USA).iso",
+    "sha256": "64c012f35d0c8b97e34c13e47060550b36d89fc36bed2691661cfdf108671cbb"
+  }
+}

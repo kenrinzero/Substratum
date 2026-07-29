@@ -19,11 +19,12 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.11 (2026-07-27): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and eleven real
+Version 0.0.12 (2026-07-29): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and twelve real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, and `3ds-ncch`.
-The eleventh is `wii-disc`. Every unit runs through the same four-check
+The eleventh is `wii-disc`; the twelfth is `wii-partition`. Every unit runs
+through the same four-check
 structural, manifest,
 round-trip, and byte-fidelity gate; the large GameCube fixtures also carry
 a 1 GB per-test peak-RSS guard. `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
@@ -61,14 +62,16 @@ UPDATE, or CHANNEL partitions as lazy opaque encrypted slices after validating
 the disc directory, cleartext partition metadata, and complete ranges. The
 Munchables anchor keeps its scrubbed retail bytes local while pinned wit
 independently verifies both signed partitions and authors their boundaries.
-Qualified local retail anchors have split the remaining keyed-platform work
-into honest one-layer units. Wii partition AES-CBC decoding is prepared but
-waits on a caller-supplied local common-key file; the decrypted Wii FST follows
-that ByteView. This keyed work is intentionally deferred; see
-[`docs/WII-KEYED-WORK.md`](docs/WII-KEYED-WORK.md) for the exact local artifact,
-safe extraction/storage steps, and the resume checklist. Encrypted/seeded NCCH
-and CIA remain deferred. See `NORMALIZERS.md` for exact format bounds, fixture
-provenance, proof tools, and the dispatch order.
+`wii-partition` then decrypts one such partition into a lazy `ByteView` of
+0x7C00-byte cluster payloads using a pure-Python AES-128-CBC (NIST SP 800-38A
+anchored) — the title key is derived from the ticket with the operator-supplied
+standard Wii common key (`SUBSTRATUM_WII_COMMON_KEY_FILE`), which is never
+committed, hashed, or logged. The decrypted Wii FST (`wii-fst`) follows that
+ByteView as the next unit. See
+[`docs/WII-KEYED-WORK.md`](docs/WII-KEYED-WORK.md) for the exact local key
+artifact, safe extraction/storage steps, and key-handling discipline.
+Encrypted/seeded NCCH and CIA remain deferred. See `NORMALIZERS.md` for exact
+format bounds, fixture provenance, proof tools, and the dispatch order.
 
 ## Use
 

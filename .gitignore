@@ -35,4 +35,8 @@ fixtures/3ds_ncch/cubic-ninja/reference/
 # Wii retail disc anchor: complete opaque encrypted partition references stay
 # local; only the metadata manifest and provenance are committed.
 fixtures/wii_disc/munchables/reference/
+# Wii keyed-partition retail anchor: wit's independently extracted decrypted
+# reference regions stay local; only the metadata manifest and provenance are
+# committed. No key bytes or decrypted retail payloads enter git.
+fixtures/wii_partition/munchables/reference/
 tools/

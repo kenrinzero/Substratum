@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "substratum"
-version = "0.0.11"
+version = "0.0.12"
 description = "One normalized byte view over the game-preservation container zoo"
 readme = "README.md"
 requires-python = ">=3.13"

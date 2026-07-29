@@ -7,10 +7,10 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.11** is clean at `94925c6`. The keyless/decrypted floor is
-complete: **11 normalizers are GREEN**. No new normalizer is currently
-dispatchable. The next unlock is a locally supplied raw 16-byte standard Wii
-common key; keyed Wii work then proceeds in two separate sessions.
+Version **0.0.12** is clean at `34cb474` (implementation pending commit). The
+keyless/decrypted floor plus keyed Wii partition decode is complete: **12
+normalizers are GREEN**. `wii-fst` is the next READY unit — it walks the
+decrypted DATA-partition `ByteView` that `wii-partition` now produces.
 
 ## Done
 
@@ -34,18 +34,18 @@ common key; keyed Wii work then proceeds in two separate sessions.
       artifact, safe gitignored storage, environment boundary, and resume
       checklist without storing key material or its digest.
 
+- [x] **Wii partition decode (`wii-partition`):** pure-Python AES-128-CBC
+      (NIST SP 800-38A anchored) decrypts the title key and cluster payloads
+      into a lazy `ByteView`; synthetic generated-key fixture + wit-extracted
+      retail proof against The Munchables. Standard common key supplied
+      locally and never committed.
+
 ## Next (in dispatch order)
 
-- [ ] **Supply the Wii common key:** place the owner-supplied raw standard Wii
-      common key at `fixtures/_local/wii-common-key.bin`; it must be exactly
-      16 bytes. Never commit, print, hash, or log it.
-
-- [ ] **`wii-partition` — AES-CBC decode:** author the generated-key synthetic
-      fixture and NIST-vector anchor, then prove the lazy decrypted
-      `ByteView` against the pinned `wit` / Dolphin qualification evidence.
-
-- [ ] **`wii-fst` — decrypted filesystem:** after `wii-partition` is GREEN,
-      walk its decoded DATA-partition view as a separate `FileTree` normalizer.
+- [ ] **`wii-fst` — decrypted filesystem:** walk the `wii-partition` decoded
+      DATA-partition `ByteView` as a separate `FileTree` normalizer. wit's
+      53-entry user tree and 61-file extraction corpus for The Munchables are
+      already independently qualified; the decrypted stream is now available.
 
 - [ ] **Revisit deferred formats:** encrypted or seeded 3DS formats remain
       explicitly deferred until their fixture and key-provider plan is
