@@ -79,24 +79,29 @@ load-bearing Wii-format finding is that FST file offsets are word offsets
 → `wii-partition` → `wii-fst` — is end-to-end green. See
 [`docs/WII-KEYED-WORK.md`](docs/WII-KEYED-WORK.md) for the exact local key
 artifact, safe extraction/storage steps, and key-handling discipline.
-Encrypted/seeded NCCH and CIA remain deferred: the architecture is settled
-(ctrtool-at-runtime, retail keys compiled into vendored ctrtool v1.3.0) and
-the standard-encrypted NCCH layer and the CIA install container are **GREEN**
-(`3ds-ncch-enc` decrypts via ctrtool into a `ByteView` the caller composes
-through `three_ds_ncch`; `cia` parses the outer container into opaque section
-slices whose content blob a caller re-normalizes through `3ds-ncch-enc`).
-`3ds-ncch-enc` covers the no-seed encrypted variants — standard crypto
-(`Secure (0)`, keyslot `0x2C`) and plain-7.x (`Secure (1)` no-seed, keyslot
-`0x25`). **Next: New3DS 9.6 (`0x0B`, keyslot `0x1B`) via a planned pure-Python
-AES-CTR path** ([`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md))
-— vendored ctrtool v1.3.0 cannot decrypt keyslot `0x1B`, so the normalizer
-will read the `0x1B` keyX directly from the operator-supplied keyset (the FE
-Warriors anchor + keyX are already parked). New3DS 9.3 (`0x0A`) is
-opportunistic — tooling-free once 9.6 lands, but a genuine `0x0A` anchor is
-effectively lost media. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
-for the crypto hierarchy, key-discipline notes, and the resume checklist. See
-`NORMALIZERS.md` for exact format bounds, fixture provenance, proof tools,
-and the dispatch order.
+The full 3DS encrypted-NCCH family is GREEN. The CIA install container
+(`cia`) parses the outer container into opaque section slices whose content
+blob a caller re-normalizes through `3ds-ncch-enc`. `3ds-ncch-enc` covers the
+no-seed encrypted variants — standard crypto (`Secure (0)`, keyslot `0x2C`)
+and plain-7.x (`Secure (1)` no-seed, keyslot `0x25`) — decrypting via vendored
+ctrtool into a `ByteView` the caller composes through `three_ds_ncch`.
+`3ds-ncch-enc-seed` handles 7.x-seed (`Secure (1) (KeyY seeded)`, keyslot
+`0x25`) inside a CIA via ctrtool + the operator-supplied seeddb.
+`3ds-ncch-enc-96` decrypts **New3DS 9.6** (`0x0B`, keyslot `0x1B`) in
+**pure-Python AES-CTR**, bypassing vendored ctrtool v1.3.0 entirely (it cannot
+decrypt keyslot `0x1B`): it reads the `0x2C` + `0x1B` keyX values from the
+operator-supplied keyset (`SUBSTRATUM_3DS_KEYSET_FILE`) and derives the AES
+normal keys via the 3DS hardware key generator. The load-bearing finding is
+the **two-key NCCH model** — a 9.6 NCCH uses two normal keys from the same
+keyY but different keyX slots: Key0 (`0x2C`) encrypts the extended header,
+the ExeFS superblock, and the ExeFS tail; Key1 (`0x1B`) encrypts the first
+ExeFS file (`.code`) and the entire RomFS (the ExeFS is one continuous CTR
+stream whose key switches mid-stream). New3DS 9.3 (`0x0A`/`0x18`) is
+**opportunistic only**: the tooling falls out of the 9.6 path (same module),
+but a genuine `0x0A` anchor is effectively lost media. See
+[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) for the crypto hierarchy,
+key-discipline notes, and the two-key model; see `NORMALIZERS.md` for exact
+format bounds, fixture provenance, proof tools, and the dispatch order.
 
 ## Use
 
@@ -177,7 +182,13 @@ Synthetic (committed) · homebrew (fetched, committed if license-clean) ·
 into the gitignored `fixtures/_local/`. Agents have **no standing corpus
 access**; published outputs are metadata only.
 
+## Contributors
+
+Development is led by **kenrinzero** with a fleet of AI agents under the
+Atelier protocol. See [`CONTRIBUTORS.md`](CONTRIBUTORS.md) for the full list.
+
 ## License
 
-MIT. Committed fixtures are synthetic or license-clean homebrew with
-per-file provenance noted in their NORMALIZERS.md row.
+MIT — see [`LICENSE`](LICENSE). Committed fixtures are synthetic or
+license-clean homebrew with per-file provenance noted in their NORMALIZERS.md
+row.
