@@ -11,7 +11,11 @@ Version **0.0.17** is clean (post plain-7.x widening). **16 normalizers**
 are GREEN: the keyless/decrypted floor, the complete Wii chain, the CIA
 container, and the 3DS encrypted-NCCH variants — standard + plain-7.x crypto
 (`3ds-ncch-enc`, no-seed `{0x00, 0x01}`) and 7.x-seed (`3ds-ncch-enc-seed`).
-The remaining deferred work is the New3DS variants: 9.3 and 9.6.
+The remaining deferred work is the New3DS variants: 9.3 (`0x0A`/`0x18`,
+tooling untested) and 9.6 (`0x0B`/`0x1B`, **blocked** — vendored ctrtool
+v1.3.0 cannot decrypt the parked FE Warriors anchor; keyslot `0x1B`'s keyX
+appears unavailable). See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
+§ "CORRECTION (2026-07-30)".
 
 ## Done
 
@@ -70,17 +74,24 @@ The remaining deferred work is the New3DS variants: 9.3 and 9.6.
 
 ## Next (in dispatch order)
 
-- [ ] **New3DS 9.3 variant:** `ncchflag[3] == 0x0A`, keyslot `0x18` (compiled
-      into vendored ctrtool). Needs an encrypted retail anchor; no extra
-      artifact. Architecturally close to `3ds-ncch-enc` once the scope set
-      widens again (slice-decryptable, plaintext header).
+- [ ] **New3DS 9.3 variant:** `ncchflag[3] == 0x0A`, keyslot `0x18`,
+      New3DS-only, no seeddb (the `0x20` keyY generator postdates 9.3).
+      Architecturally the simplest remaining variant (plaintext header,
+      slice-decryptable — closest to plain-7.x). **Tooling caveat (2026-07-30):**
+      whether keyslot `0x18`'s keyX is available to vendored ctrtool v1.3.0 is
+      **untested** — the 9.6 keyslot `0x1B` proved unavailable on the same
+      build, so a 9.3 anchor must be confirmed to decrypt *before* this unit is
+      dispatched. Needs an encrypted retail anchor; no extra artifact.
 
-- [ ] **New3DS 9.6 variant:** `ncchflag[3] == 0x0B`, keyslot `0x1B`. The
-      no-seed 9.6 path is already anchored by the parked **Fire Emblem
-      Warriors** `.3ds` (decrypts seeddb-free per the 2026-07-30 finding); a
-      *seeded* 9.6 title is still needed to exercise the `--seeddb` path. The
-      seeddb is parked at gitignored `fixtures/_local/seeddb.bin`. See
-      [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § Resume checklist.
+- [ ] **New3DS 9.6 variant:** `ncchflag[3] == 0x0B`, keyslot `0x1B`. **BLOCKED
+      on tooling (2026-07-30 correction):** the parked **Fire Emblem Warriors**
+      `.3ds` is the right format anchor (`0x0B`), but vendored ctrtool v1.3.0
+      **cannot decrypt it** (0 files under all tested conditions; "NcchHeader
+      corrupted") — keyslot `0x1B`'s keyX appears unavailable to this build,
+      while keyslot `0x25` (7.x-seed, BoxBoxBoy) works. The seeddb stays parked
+      and is required for seeded-9.6 titles only (never 9.3). Unblocks on a
+      ctrtool build with working `0x1B`, or a pure-Python AES-CTR path. See
+      [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION".
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and

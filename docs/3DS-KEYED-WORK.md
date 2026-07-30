@@ -232,23 +232,69 @@ correctness via the NCCH protected-hash validation through the composed
 `three_ds_ncch` gate (ctrtool is the banner oracle; 3dstool's stripped banner
 is expected).
 
-### New3DS 9.6 no-seed finding + FE Warriors anchor (2026-07-30)
+### New3DS 9.6 + FE Warriors anchor — CORRECTION (2026-07-30)
 
 Kenrin sourced **Fire Emblem Warriors (USA) (v0.0)** `.3ds` (CCI, 2 GiB, title
 ID `000400000f70cd00`) and parked it at gitignored
 `fixtures/_local/Fire Emblem Warriors (USA) (v0.0).3ds`. Qualified via vendored
 ctrtool v1.3.0 + raw-byte read of the NCCH flags: **`ncchflag[3] == 0x0B` →
-New3DS 9.6 crypto, keyslot `0x1B`**, NoCrypto clear, seed bit clear,
-`Title seed check: 00000000`, plaintext NCCH header (slice-decryptable). This
-is the New3DS 9.6 variant (checklist item 5).
+New3DS 9.6 crypto, keyslot `0x1B`**, NoCrypto clear, plaintext NCCH header.
+This is the New3DS 9.6 variant (checklist item 5).
 
-**Load-bearing finding:** `ncchflag[3]==0x0B` selects the 9.6 *keyslot*, but
-whether a given 9.6 title needs the per-title **seed** is a separate seeddb
-lookup. **FE Warriors does NOT need the seeddb** — proven empirically: ctrtool
-decrypts its RomFS cleanly with no `--seeddb`, and the with-seeddb vs.
-without-seeddb extractions are **byte-identical** (146 files, same SHA-256s;
-both report `Title seed check: 00000000`). So FE Warriors anchors the
-**no-seed 9.6 path** seeddb-free. A *seeded* 9.6 title (one whose seeddb
-lookup actually fires) is still needed to exercise the `--seeddb` path; FE
-Warriors cannot cover it. The parked `seeddb.bin` is therefore required only
-for that second 9.6 sub-variant, not for FE Warriors.
+> **CORRECTION (2026-07-30, session #227).** An earlier draft of this section
+> (and the `53ed3de` commit message, the project log, and the brief) claimed
+> FE Warriors "decrypts seeddb-free" and anchors a "no-seed 9.6 path." That
+> finding was **false** — a test-hygiene artifact (a `romfs/` dir left over
+> from a *different* title's extraction was misread as FE Warriors output, so
+> both the "146 files extracted" and the "byte-identical with/without seeddb"
+> observations were reading stale bytes, not a live decrypt). It is retracted
+> here and superseded by the verified facts below.
+
+**Verified facts (re-checked cleanly, fresh dirs each run):**
+
+1. **FE Warriors does NOT decrypt with vendored ctrtool v1.3.0** (built
+   2026-01-18) under any tested condition: with/without `--seeddb`, with/without
+   `-k aes_keys.txt` (both the retrobios and IA keysets, though ctrtool reports
+   `-k` deprecated and keys "initialised internally"), from the repo root or an
+   isolated cwd, `--romfs` or `--romfsdir`, with/without `-y`. Every run prints
+   `[ctrtool::NcchProcess ERROR] NcchHeader is corrupted (Bad struct magic).`
+   and extracts **0 files**. `ctrtool -v` *analyzes* the title fine (reports
+   `Secure (11)`, derives keys, `Title seed check: 00000000`) — only the
+   decrypt-extract path fails.
+2. **The ctrtool build and seeddb are not the blocker in general**: the same
+   build + same seeddb **does decrypt BoxBoxBoy (7.x-seed, keyslot `0x25`) to
+   532 files.** So keyslot `0x25` works; what fails is specifically the 9.6
+   keyslot `0x1B`. The inference: **keyslot `0x1B`'s keyX is not effectively
+   available to this ctrtool v1.3.0 decrypt path** (the keyslot's keyX is
+   New3DS-`arm9loader`-derived and may not be compiled in the way `0x2C`/`0x25`
+   are).
+3. FE Warriors **is present in the parked seeddb** (title ID `000400000f70cd00`
+   confirmed by presence-only membership check; no seed bytes read/printed).
+
+**Consequence:** the New3DS 9.6 unit is **NOT ready** as of this correction.
+FE Warriors is the right *format* anchor (`0x0B`), but the decrypt oracle
+itself is blocked on tooling — either a ctrtool build with working keyslot
+`0x1B`, or a pure-Python AES-CTR path using the `0x1B` keyX from the parked
+keysets (the deferred path this doc already records). 9.6 stays deferred until
+that resolves. The seeddb remains parked and is genuinely required for any
+seeded 9.6 title (the `0x20` keyY-generator bit, per the corrected flag model
+below) — but FE Warriors cannot currently prove either 9.6 sub-variant.
+
+**The two-byte flag model (corrected — authoritatively per 3DBrew NCCH).** The
+earlier part of this doc conflated the crypto method with the seed flag. They
+are **two independent bytes**:
+
+- `ncchflag[3]` — the crypto *method* → AES keyslot: `0x00`/`0x2C`,
+  `0x01`/`0x25`, `0x0A`/`0x18` (9.3, New3DS-only), `0x0B`/`0x1B` (9.6,
+  New3DS-only).
+- `ncchflag[7]` — keyY *generator*: bit `0x20` set → seed crypto (the title is
+  looked up in the seeddb; the seed modifies keyY). The `0x20` generator
+  "starts with FIRM 9.6.0-X," so **9.3 (`0x0A`) does NOT use seed crypto**;
+  only 9.6 titles *can*, and only those with the bit set.
+
+So the seeddb is relevant to **seeded 9.6** titles only — never to 9.3, and
+not to every 9.6 title. This also means **9.3 is architecturally the simplest
+remaining variant** (New3DS-only, keyslot `0x18`, no seeddb, plaintext header,
+slice-decryptable — closest to plain-7.x), *if* a ctrtool build has working
+keyslot `0x1B`/`0x18` support; that tooling question is currently open for
+both New3DS keyslots.
