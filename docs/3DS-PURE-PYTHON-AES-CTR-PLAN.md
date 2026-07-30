@@ -33,18 +33,20 @@ reference `ctrKeyGen.py` (Relys/3DS_Multi_Decryptor) for the seed path.
 ### Step 1 — normal key from keyX ⊕ keyY (hardware key generator)
 
 ```
-NormalKey = (((KeyX ROL 2) XOR KeyY) + C1) ROR 41
+NormalKey = ROL87( (ROL2(KeyX) XOR KeyY) + C1 )     # 3DBrew writes ROR 41
 ```
 
 - 128-bit big-endian unsigned wraparound arithmetic (3DBrew AES_Registers,
   "Hardware key generator").
-- `ROL 2` = rotate the 128-bit value left by 2 bits; `ROR 41` = rotate right
-  by 41 bits; `+ C1` = 128-bit modular addition.
-- **`C1` is a fixed 128-bit constant** named but not defined on the
-  AES_Registers page — **the implementer MUST pin its exact hex value from
-  primary source** (3DBrew keys/OTP pages or a reference decryptor) before any
-  test can pass. Do not trust a value read through a summarizer; cite the page
-  revision. (DSi uses a separate `C2` — out of scope.)
+- `ROL 2` = rotate the 128-bit value left by 2 bits; `+ C1` = 128-bit modular
+  addition; the final rotate is **`ROL 87`** in 3dstool/RomForge source
+  (3DBrew expresses the same operation as `ROR 41`, since `41 + 87 = 128`).
+  Implement as `ROL 87` to match the differential tool byte-for-byte.
+- **`C1` = `1FF9E9AAC5FE0408024591DC5D52768A`** — pinned 2026-07-30 from
+  `dnasdw/3dstool` `src/ncch.cpp:556-557` (the vendored differential decryptor),
+  cross-confirmed in `sinjunyoung/RomForge` and `TASEmulators/BizHawk`. See
+  "Open items" §1 for the full provenance. (DSi uses a separate `C2` — out of
+  scope.)
 - `keyX` comes from the parked keyset (`slot0x1BKeyX` / `slot0x18KeyX`).
 - `keyY` = the NCCH signature's first 0x10 bytes (offset `0x000`–`0x00F` of the
   NCCH), **unless** the seed bit modifies it (step 2).
@@ -162,13 +164,41 @@ dispatch shape):
 
 ## Open items for the implementer
 
-1. **Pin `C1`** from primary source (3DBrew, page revision cited). Load-bearing.
-2. **Confirm the version-2 counter magic bytes** (M=1/2/3 for exheader/exefs/
-   romfs) against a reference decryptor, not just 3DBrew prose — a wrong magic
-   = a wrong counter = silent garbage.
+1. **`C1` PINNED (2026-07-30, session #256).** `C1 =
+   1FF9E9AAC5FE0408024591DC5D52768A`, confirmed identically in three
+   independent codebases: `dnasdw/3dstool` `src/ncch.cpp:556-557` (the
+   reference decryptor Substratum already vendors — authoritative), the
+   independent C# `sinjunyoung/RomForge` `3DS.Core/Crypto/KeySlot.cs:5,28`,
+   and the TAS-emulator `TASEmulators/BizHawk`
+   `src/BizHawk.Emulation.Common/N3DSHasher.cs:27`. **Plan correction: the
+   final rotation is `ROL 87`, not `ROR 41`.** 3dstool writes `.Crol(87,
+   128)`; RomForge writes `Lrot128(step3, 87)`. 3DBrew's "ROR 41" is the
+   same operation since `41 + 87 = 128` on a 128-bit value — but implement
+   as **ROL 87** to match the differential tool's source byte-for-byte and
+   dodge the off-by-arithmetic risk. So `normalkey = ROL87( (ROL2(keyX) ^
+   keyY) + C1 )`.
+   - **3DBrew AES_Registers does not define C1** — it names it only (page
+     rev 22989, 2024-12-22). The constant lives in the reference tools.
+   - `ctrKeyGen.py` (Relys/3DS_Multi_Decryptor) does NOT contain C1 and does
+     NOT compute the normal-key at all: it emits `ncchinfo.bin` entries
+     (counter + keyY) for an on-console xorpad generator. It is the wrong
+     place to look for C1; it is the right place for the counter (item 2).
+2. **Counter CONFIRMED (2026-07-30, session #256)** from
+   `ctrKeyGen.py:130-147` (`getNcchAesCounter`, "based on code from
+   ctrtool's source"). Format version 2/0:
+   `counter[0:8] = header.titleId[::-1]` (the 8 raw bytes at NCCH 0x108,
+   reversed to big-endian), `counter[8] = region_magic` (1=exheader,
+   2=exefs, 3=romfs), `counter[9:16] = 0`. No per-block increment is
+   applied by ctrKeyGen — the counter is the *initial* 16-byte value;
+   increment is big-endian per 16-byte block during the CTR stream. Version
+   1 (prototype) counter stays out of scope / refused as today.
 3. **Seeddb record layout** is `[seed(16)][titleID(8)][reserved(8)]`,
    records from byte 0, no header (verified 2026-07-30 against the parked
-   file; FE Warriors title ID `000400000f70cd00` is present).
+   file; FE Warriors title ID `000400000f70cd00` is present). The seed
+   check + keyY derivation are confirmed verbatim in `ctrKeyGen.py:194-198`:
+   `seedcheck = big-endian u32 at 0x114`, verify
+   `sha256(seed + titleId)[:4] == seedcheck`, then
+   `newkeyY = sha256(keyY + seed)[:16]`.
 4. The pure-Python AES throughput (~0.5 MiB/s) means **full** romfs decrypt is
    impractical — the normalizer must be lazy + windowed from the start, and
    the retail test must sample, not whole-read (same constraint as wii-fst).

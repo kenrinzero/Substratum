@@ -1,4 +1,5 @@
-"""Pure-Python AES-128 decryption in CBC mode (FIPS-197 / SP 800-38A).
+"""Pure-Python AES-128 in CBC and CTR modes (FIPS-197 / SP 800-38A), plus the
+3DS AES hardware key generator.
 
 Substratum's runtime is stdlib-only by DESIGN.md §4, and the Python stdlib
 ships no symmetric cipher. The Wii partition layer needs AES-128-CBC *decryption*
@@ -7,19 +8,38 @@ block AES-128 decrypt, wrapped by CBC chaining. Encryption exists only as the
 synthetic-fixture authoring path under seedtools, so a generated test key can
 produce a real encrypted partition that this runtime then decrypts.
 
-Correctness is anchored independently of any Wii fixture by the NIST SP 800-38A
-Appendix F.2.1 AES-128-CBC vectors (see tests/test_wii_partition.py). The
+The New3DS encrypted-NCCH layer (docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md) needs
+AES-128-*CTR* — it decrypts 9.6/9.3 NCCH regions with a keyslot keyX the vendored
+ctrtool cannot use. CTR reuses the *forward* AES block primitive (the keystream
+block is ``AES_encrypt(counter)``), so it is a natural sibling that adds no new
+core. The 3DS computes each keyslot's normal-key in hardware from a keyX/keyY
+pair plus a fixed generator constant; ``normalkey_from_keyxy`` reproduces that
+so Substratum can read a keyX straight from the operator-supplied keyset.
+
+Correctness is anchored independently of any fixture: the NIST SP 800-38A
+Appendix F.2.1 (CBC) and F.5.1 (CTR) AES-128 vectors (tests/test_wii_partition.py
+and tests/test_aes_ctr.py). The key-generator constant C1 is pinned from three
+independent codebases, the authoritative one being ``dnasdw/3dstool
+src/ncch.cpp`` — the reference decryptor Substratum already vendors. The
 implementation is the textbook FIPS-197 construction; no clever tricks.
 
 References:
   - FIPS-197, Advanced Encryption Standard (AES), NIST 2001.
   - SP 800-38A, Recommendation for Block Cipher Modes of Operation, NIST 2001
-    (Addendum: Example Vectors), Appendix F.2.1 (CBC-AES128).
+    (Addendum: Example Vectors), Appendix F.2.1 (CBC-AES128), F.5.1 (CTR-AES128).
+  - 3DBrew, AES_Registers "Hardware key generator" (page rev 22989, 2024-12-22).
+  - dnasdw/3dstool src/ncch.cpp (C1 + ROL-87 key generator); Relys/
+    3DS_Multi_Decryptor ctrKeyGen.py (NCCH AES counter construction).
 """
 
 from __future__ import annotations
 
-__all__ = ["aes128_cbc_decrypt", "aes128_cbc_encrypt"]
+__all__ = [
+    "aes128_cbc_decrypt",
+    "aes128_cbc_encrypt",
+    "aes128_ctr_xor",
+    "normalkey_from_keyxy",
+]
 
 _BLOCK = 16
 
@@ -266,4 +286,100 @@ def aes128_cbc_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> bytes:
         enc = _encrypt_block(chunk, round_keys)
         out[i : i + _BLOCK] = enc
         prev = enc
+    return bytes(out)
+
+
+# --------------------------------------------------------------------------
+# AES-128-CTR (SP 800-38A §6.5) and the 3DS hardware key generator.
+#
+# These are pure additions for the New3DS 9.6/9.3 encrypted-NCCH layer; they do
+# not touch the CBC path the Wii units depend on. CTR reuses the *forward* AES
+# block primitive, and the key generator is bit arithmetic over a 128-bit int.
+# See docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md.
+# --------------------------------------------------------------------------
+
+_MASK128 = (1 << 128) - 1
+
+
+def _rol128(value: int, n: int) -> int:
+    """Rotate a 128-bit value left by ``n`` bits (big-endian semantics).
+
+    ``value`` is the integer interpretation of a 16-byte big-endian byte string.
+    ``ROL(x, 41) == ROR(x, 87)`` etc. on a 128-bit value; the 3DS key generator
+    uses the equivalent ``ROL 2`` and ``ROL 87`` (which 3DBrew writes as
+    ``ROR 41``).
+    """
+    n &= 127
+    if n == 0:
+        return value & _MASK128
+    value &= _MASK128
+    return ((value << n) | (value >> (128 - n))) & _MASK128
+
+
+def _ror128(value: int, n: int) -> int:
+    """Rotate a 128-bit value right by ``n`` bits (inverse of ``_rol128``)."""
+    return _rol128(value, -n & 127)
+
+
+# The 3DS AES hardware key-generator constant C1. 3DBrew's AES_Registers page
+# names it but does not define it; this value is pinned identically from three
+# independent codebases (docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md "Open items" §1):
+# dnasdw/3dstool src/ncch.cpp:556-557 (the vendored differential decryptor —
+# authoritative), sinjunyoung/RomForge 3DS.Core/Crypto/KeySlot.cs:5, and the
+# TAS-emulator TASEmulators/BizHawk N3DSHasher.cs:27. Stored as bytes so it is
+# consumed verbatim by the key generator without a round-trip through hex.
+_KEYGEN_C1 = bytes.fromhex("1FF9E9AAC5FE0408024591DC5D52768A")
+
+
+def normalkey_from_keyxy(keyx: bytes, keyy: bytes) -> bytes:
+    """Compute a 3DS AES keyslot's normal key from its keyX/keyY pair.
+
+    Implements the hardware key generator (3DBrew AES_Registers, "Hardware key
+    generator"; 3dstool ``src/ncch.cpp`` ``Ncch::CreateKey``):
+
+        normalkey = ROL87( (ROL2(keyX) XOR keyY) + C1 )
+
+    All arithmetic is 128-bit big-endian unsigned wraparound. ``+`` is modular
+    addition mod 2**128. The final rotate is ``ROL 87`` (3dstool/RomForge); it is
+    the same operation as 3DBrew's ``ROR 41`` because 41 + 87 == 128, but we
+    match the differential tool's source verbatim. ``keyx`` and ``keyy`` are the
+    raw 16-byte values in big-endian byte order.
+    """
+    if len(keyx) != _BLOCK or len(keyy) != _BLOCK:
+        raise ValueError("keyX and keyY must each be 16 bytes")
+    x = int.from_bytes(keyx, "big")
+    y = int.from_bytes(keyy, "big")
+    c1 = int.from_bytes(_KEYGEN_C1, "big")
+    normal = _rol128(((_rol128(x, 2) ^ y) + c1) & _MASK128, 87)
+    return normal.to_bytes(_BLOCK, "big")
+
+
+def aes128_ctr_xor(key: bytes, counter: bytes, data: bytes) -> bytes:
+    """SP 800-38A §6.5: AES-128-CTR (XOR the data with the keystream).
+
+    ``counter`` is the 16-byte initial counter block (big-endian increment per
+    16-byte block, incrementing only the full 128-bit counter, per SP 800-38A
+    §6.5 / B.2). ``data`` need not be a multiple of 16 bytes; the final block's
+    keystream is truncated to the data length. Encryption and decryption are the
+    same XOR operation.
+
+    Correctness is anchored independent of any 3DS fixture by the NIST SP 800-38A
+    Appendix F.5.1 AES-128-CTR vectors (tests/test_aes_ctr.py).
+    """
+    if len(key) != 16:
+        raise ValueError("AES-128 requires a 16-byte key")
+    if len(counter) != _BLOCK:
+        raise ValueError("CTR counter block must be 16 bytes")
+    if len(data) == 0:
+        return b""
+    round_keys = _expand_key(key)
+    out = bytearray(len(data))
+    counter_int = int.from_bytes(counter, "big")
+    for i in range(0, len(data), _BLOCK):
+        keystream = _encrypt_block(counter_int.to_bytes(_BLOCK, "big"), round_keys)
+        chunk = data[i : i + _BLOCK]
+        for j in range(len(chunk)):
+            out[i + j] = chunk[j] ^ keystream[j]
+        # Big-endian increment of the full 128-bit counter (SP 800-38A §B.2).
+        counter_int = (counter_int + 1) & _MASK128
     return bytes(out)

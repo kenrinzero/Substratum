@@ -188,7 +188,12 @@ work is the rarer 3DS crypto variants:
    [`3DS-PURE-PYTHON-AES-CTR-PLAN.md`](3DS-PURE-PYTHON-AES-CTR-PLAN.md) for the
    full algorithm (normalkey key-gen formula, seed-keyY derivation, CTR
    counter) and the two-session build plan. FE Warriors is the anchor; the
-   seeddb is parked for the seeded sub-variant.
+   seeddb is parked for the seeded sub-variant. **Session A DONE 2026-07-30
+   (#256):** `substratum/_aes.py` now has `aes128_ctr_xor` (NIST SP 800-38A
+   F.5.1-anchored) + `normalkey_from_keyxy` (C1
+   `1FF9E9AAC5FE0408024591DC5D52768A` + ROL-87, pinned from 3dstool source and
+   cross-confirmed by RomForge/BizHawk). 345 tests green. **Next: Session B**
+   — the `three_ds_ncch_enc_96` normalizer + FE Warriors retail proof.
 
 ### Load-bearing empirical findings
 
