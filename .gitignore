@@ -36,6 +36,10 @@ fixtures/3ds_ncch/cubic-ninja/reference/
 # decrypted region references stay local; only the metadata manifest and
 # provenance are committed. No key bytes or decrypted retail payloads enter git.
 fixtures/3ds_ncch_enc/biohazard/reference/
+# 3DS plain-7.x encrypted-NCCH retail anchor: ctrtool/3dstool independently
+# extracted decrypted region references stay local; only the metadata manifest
+# and provenance are committed. No key bytes or decrypted retail payloads enter git.
+fixtures/3ds_ncch_enc/kobayashi/reference/
 # 3DS 7.x-seed encrypted-NCCH retail anchors: ctrtool-decrypted region
 # references stay local; only the metadata manifests and provenance commit.
 fixtures/3ds_ncch_enc_seed/boxboxboy/reference/

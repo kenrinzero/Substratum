@@ -7,11 +7,11 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.16** is clean (post-`3ds-ncch-enc-seed`). **16 normalizers**
+Version **0.0.17** is clean (post plain-7.x widening). **16 normalizers**
 are GREEN: the keyless/decrypted floor, the complete Wii chain, the CIA
-container, and both 3DS encrypted-NCCH variants — standard crypto
-(`3ds-ncch-enc`) and 7.x-seed (`3ds-ncch-enc-seed`). The remaining deferred
-work is the rarer 3DS crypto variants: plain 7.x (no seed), 9.3, and 9.6.
+container, and the 3DS encrypted-NCCH variants — standard + plain-7.x crypto
+(`3ds-ncch-enc`, no-seed `{0x00, 0x01}`) and 7.x-seed (`3ds-ncch-enc-seed`).
+The remaining deferred work is the New3DS variants: 9.3 and 9.6.
 
 ## Done
 
@@ -53,6 +53,16 @@ work is the rarer 3DS crypto variants: plain 7.x (no seed), 9.3, and 9.6.
       a whole CIA (the variant encrypts the NCCH header itself, so a raw slice
       can't be decrypted). Two retail anchors: BoxBoxBoy + Mini Sports.
 
+- [x] **Plain-7.x encrypted NCCH (`3ds-ncch-enc` widening):** widened the
+      no-seed scope of `3ds-ncch-enc` to accept `ncchflag[3]` in `{0x00, 0x01}`
+      — standard crypto (`0x2C`) plus plain-7.x (`Secure (1)` no-seed, keyslot
+      `0x25`). Plaintext header (unlike 7.x-seed), so slice-decryptable from a
+      CCI via `3ds-cci`. Retail anchor: Kobayashi (CCI). Load-bearing finding:
+      ctrtool and 3dstool agree on `.code`/`icon`/`plain`/`logo`/`exheader`/
+      `romfs` content; 3dstool strips a ~207-byte banner signature region that
+      ctrtool preserves (documented tooling difference, not a decrypt
+      disagreement).
+
 - [x] **Proof and hardening pass:** independent-tool differential checks,
       retail/homebrew anchors, path and header rejection, streaming and
       memory-discipline protections, and pinned tool versions are recorded in
@@ -60,21 +70,17 @@ work is the rarer 3DS crypto variants: plain 7.x (no seed), 9.3, and 9.6.
 
 ## Next (in dispatch order)
 
-- [ ] **Plain-7.x encrypted NCCH (next unit, fixture fulfilled):** the
-      remaining 7.x sub-variant — `Crypto Key Secure (1)` with **no** seed
-      (`ncchflag[3] == 0x01`, seed bit clear, keyslot `0x25`). Retail anchor
-      parked at gitignored `fixtures/_local/3DS1333 - Kobayashi ga Kawai
-      Sugite Tsurai!! … (Japan).3ds` (title ID `0004000000168700`, verified
-      `Secure (1)` no-seed). Architecturally close to `3ds-ncch-enc` (NOT
-      `3ds-ncch-enc-seed`): plain 7.x has a *plaintext* NCCH header, so it is
-      slice-decryptable and consumes a raw NCCH slice (via `3ds-cci`), not a
-      whole CIA. Likely a sniff/scope widening of `3ds-ncch-enc` to accept
-      `ncchflag[3]` in `{0x00, 0x01}` (no-seed). See
-      [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § Resume checklist.
+- [ ] **New3DS 9.3 variant:** `ncchflag[3] == 0x0A`, keyslot `0x18` (compiled
+      into vendored ctrtool). Needs an encrypted retail anchor; no extra
+      artifact. Architecturally close to `3ds-ncch-enc` once the scope set
+      widens again (slice-decryptable, plaintext header).
 
-- [ ] **New3DS 9.3 / 9.6-seed variants:** `ncchflag[3]` `0x0A` / `0x1B`. Each
-      needs an encrypted retail anchor; the seeddb is already parked for 9.6.
-      Rarer variants (later New3DS titles); the architecture generalizes.
+- [ ] **New3DS 9.6 variant:** `ncchflag[3] == 0x0B`, keyslot `0x1B`. The
+      no-seed 9.6 path is already anchored by the parked **Fire Emblem
+      Warriors** `.3ds` (decrypts seeddb-free per the 2026-07-30 finding); a
+      *seeded* 9.6 title is still needed to exercise the `--seeddb` path. The
+      seeddb is parked at gitignored `fixtures/_local/seeddb.bin`. See
+      [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § Resume checklist.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and

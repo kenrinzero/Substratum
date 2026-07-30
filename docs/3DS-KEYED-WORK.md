@@ -204,3 +204,51 @@ the 0x200 header from ctrtool's parsed report. 3dstool cannot serve as a
 second-party decryptor for 7.x-seed (it handles neither the CIA nor a raw
 7.x-seed slice), so the NCCH-declared protected SHA-256 hashes — validated by
 composing through `three_ds_ncch` — carry the correctness proof on their own.
+
+### Plain-7.x two-party finding (2026-07-30)
+
+Unlike 7.x-seed, **plain 7.x (`ncchflag[3] == 0x01`, no seed bit) IS
+slice-decryptable by both ctrtool and 3dstool** — the NCCH header is plaintext
+(just like standard crypto), so the normalizer consumes a raw NCCH slice cut
+from the CCI via `3ds-cci`, exactly like the standard-crypto path. The
+two-party differential therefore carries the correctness proof, same as
+standard crypto, with one documented refinement:
+
+**ctrtool and 3dstool agree on essentially all content; the only divergence is
+where 3dstool strips banner signature bytes.** On the Kobayashi anchor,
+`.code`, `icon`, `plain`, `extendedheader`, and `romfs` decrypt
+byte-identically between both tools. The ExeFS *header* (the 0x200 protected
+hash region) is also identical. The only differing bytes (207 of them) lie
+inside the ExeFS `banner` file at `banner+0x130` (len 206) and `banner+0x1ff`
+(len 1) — and there **3dstool writes zeros where ctrtool preserves real
+data**, consistent with 3dstool stripping a banner signature/hash region it
+does not render. This is a documented tooling difference, not a decrypt
+disagreement: the NCCH-protected-hash correctness anchor validates the ExeFS
+header (not each file's full content), and the normalizer's region slice
+exposes the raw ExeFS bytes ctrtool emits. The retail proof therefore (a)
+asserts byte-identity on `.code`, `icon`, `plain`, `extendedheader`, and
+`romfs` — the genuine two-party content oracle — and (b) carries the banner's
+correctness via the NCCH protected-hash validation through the composed
+`three_ds_ncch` gate (ctrtool is the banner oracle; 3dstool's stripped banner
+is expected).
+
+### New3DS 9.6 no-seed finding + FE Warriors anchor (2026-07-30)
+
+Kenrin sourced **Fire Emblem Warriors (USA) (v0.0)** `.3ds` (CCI, 2 GiB, title
+ID `000400000f70cd00`) and parked it at gitignored
+`fixtures/_local/Fire Emblem Warriors (USA) (v0.0).3ds`. Qualified via vendored
+ctrtool v1.3.0 + raw-byte read of the NCCH flags: **`ncchflag[3] == 0x0B` →
+New3DS 9.6 crypto, keyslot `0x1B`**, NoCrypto clear, seed bit clear,
+`Title seed check: 00000000`, plaintext NCCH header (slice-decryptable). This
+is the New3DS 9.6 variant (checklist item 5).
+
+**Load-bearing finding:** `ncchflag[3]==0x0B` selects the 9.6 *keyslot*, but
+whether a given 9.6 title needs the per-title **seed** is a separate seeddb
+lookup. **FE Warriors does NOT need the seeddb** — proven empirically: ctrtool
+decrypts its RomFS cleanly with no `--seeddb`, and the with-seeddb vs.
+without-seeddb extractions are **byte-identical** (146 files, same SHA-256s;
+both report `Title seed check: 00000000`). So FE Warriors anchors the
+**no-seed 9.6 path** seeddb-free. A *seeded* 9.6 title (one whose seeddb
+lookup actually fires) is still needed to exercise the `--seeddb` path; FE
+Warriors cannot cover it. The parked `seeddb.bin` is therefore required only
+for that second 9.6 sub-variant, not for FE Warriors.

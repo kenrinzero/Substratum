@@ -19,7 +19,7 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.16 (2026-07-29): the interface and manifest schema remain
+Version 0.0.17 (2026-07-30): the interface and manifest schema remain
 frozen, the public one-layer dispatcher is live, and sixteen real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, `3ds-ncch`,
@@ -80,8 +80,9 @@ the standard-encrypted NCCH layer and the CIA install container are **GREEN**
 (`3ds-ncch-enc` decrypts via ctrtool into a `ByteView` the caller composes
 through `three_ds_ncch`; `cia` parses the outer container into opaque section
 slices whose content blob a caller re-normalizes through `3ds-ncch-enc`).
-`3ds-ncch-enc` covers standard crypto (`Secure (0)`, keyslot `0x2C`) only;
-7.x / 9.3 / seed variants remain the open deferred work. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) for the
+`3ds-ncch-enc` covers the no-seed encrypted variants — standard crypto
+(`Secure (0)`, keyslot `0x2C`) and plain-7.x (`Secure (1)` no-seed, keyslot
+`0x25`); 9.3 / seed variants remain the open deferred work. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) for the
 crypto hierarchy, key-discipline notes, and the resume checklist. See
 `NORMALIZERS.md` for exact format bounds, fixture provenance, proof tools,
 and the dispatch order.

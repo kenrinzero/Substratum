@@ -51,6 +51,17 @@ RETAIL_MANIFEST = RETAIL / "expected.manifest.json"
 RETAIL_REFERENCE = RETAIL / "reference"
 CIA = ROOT / "fixtures" / "_local" / "Biohazard - The Mercenaries 3D (Japan).cia"
 
+# Plain-7.x retail anchor (Kobayashi): input is a CCI .3ds, NCCH = partition 0.
+P7X_CCI = (
+    ROOT
+    / "fixtures"
+    / "_local"
+    / "3DS1333 - Kobayashi ga Kawai Sugite Tsurai!! Game Demo Kyun Moe MAX ga Tomara Nai (Japan).3ds"
+)
+P7X_RETAIL = ROOT / "fixtures" / "3ds_ncch_enc" / "kobayashi"
+P7X_MANIFEST = P7X_RETAIL / "expected.manifest.json"
+P7X_REFERENCE = P7X_RETAIL / "reference"
+
 # NCCH header field offsets (mirror the normalizer).
 _HEADER_SIZE = 0x200
 _MAGIC_OFFSET = 0x100
@@ -63,6 +74,13 @@ _SEEDED_AES_KEY_Y = 1 << 5
 skip_if_no_retail_anchor = pytest.mark.skipif(
     not CIA.is_file() or not RETAIL_REFERENCE.is_dir() or not RETAIL_MANIFEST.is_file(),
     reason="Biohazard CIA or gitignored decrypted references/manifest absent",
+)
+
+skip_if_no_p7x_anchor = pytest.mark.skipif(
+    not P7X_CCI.is_file()
+    or not P7X_REFERENCE.is_dir()
+    or not P7X_MANIFEST.is_file(),
+    reason="Kobayashi CCI or gitignored decrypted references/manifest absent",
 )
 
 
@@ -82,6 +100,26 @@ def test_sniff_accepts_encrypted_ncch(tmp_path):
     ncch = tmp_path / "enc.ncch"
     ncch.write_bytes(bytes(data))
     assert sniff(FileSource(ncch))
+
+
+def test_sniff_accepts_plain_7x_ncch(tmp_path):
+    """ncchflag[3] = 0x01 (plain-7.x, keyslot 0x25) is in scope — the widening."""
+    data = bytearray(SYNTHETIC.read_bytes())
+    data[_OTHER_FLAGS_OFFSET] = data[_OTHER_FLAGS_OFFSET] & ~_NO_ENCRYPTION
+    data[_NCCH_FLAGS_OFFSET + 3] = 0x01
+    ncch = tmp_path / "7x.ncch"
+    ncch.write_bytes(bytes(data))
+    assert sniff(FileSource(ncch))
+
+
+def test_sniff_rejects_seed_crypto(tmp_path):
+    """The 0x20 seed bit routes to three_ds_ncch_enc_seed, not here."""
+    data = bytearray(SYNTHETIC.read_bytes())
+    data[_OTHER_FLAGS_OFFSET] = data[_OTHER_FLAGS_OFFSET] & ~_NO_ENCRYPTION
+    data[_OTHER_FLAGS_OFFSET] |= _SEEDED_AES_KEY_Y
+    ncch = tmp_path / "seed.ncch"
+    ncch.write_bytes(bytes(data))
+    assert not sniff(FileSource(ncch))
 
 
 def test_sniff_rejects_non_ncch():
@@ -107,12 +145,21 @@ def _synthetic_with(patches: dict[int, int] | None = None) -> bytes:
     return bytes(data)
 
 
-def test_non_standard_crypto_is_structural_red(tmp_path):
-    # ncchflag[3] = 0x01 (7.x secured) instead of 0x00 standard.
-    data = _synthetic_with({_NCCH_FLAGS_OFFSET + 3: 0x01})
-    ncch = tmp_path / "7x.ncch"
+def test_unsupported_crypto_is_structural_red(tmp_path):
+    # ncchflag[3] = 0x0A (New3DS 9.3) is outside the {0x00, 0x01} no-seed scope.
+    data = _synthetic_with({_NCCH_FLAGS_OFFSET + 3: 0x0A})
+    ncch = tmp_path / "93x.ncch"
     ncch.write_bytes(data)
-    with pytest.raises(ValueError, match="non-standard NCCH crypto"):
+    with pytest.raises(ValueError, match="outside no-seed scope"):
+        normalize_3ds_ncch_enc(ncch)
+
+
+def test_new3ds_96_crypto_is_structural_red(tmp_path):
+    # ncchflag[3] = 0x0B (New3DS 9.6) is outside the {0x00, 0x01} no-seed scope.
+    data = _synthetic_with({_NCCH_FLAGS_OFFSET + 3: 0x0B})
+    ncch = tmp_path / "96x.ncch"
+    ncch.write_bytes(data)
+    with pytest.raises(ValueError, match="outside no-seed scope"):
         normalize_3ds_ncch_enc(ncch)
 
 
@@ -299,5 +346,107 @@ def test_retail_manifest_records_pinned_oracle():
     doc = json.loads(RETAIL_MANIFEST.read_text("ascii"))
     assert doc["identity"]["crypto"].startswith("standard")
     assert doc["identity"]["seed_encrypted"] is False
+    assert doc["tool_versions"]["ctrtool"] == "CTRTool v1.3.0 (C) jakcron"
+    assert doc["tool_versions"]["3dstool"] == "3dstool 1.2.6 by dnasdw"
+
+
+# ---------------------------------------------------------------------------
+# Pillar 3b: plain-7.x retail decrypt (the widening's anchor)
+#
+# Kobayashi is a CCI .3ds whose NCCH is partition 0 (Secure (1), keyslot 0x25,
+# no seed). The two-party oracle on content is ctrtool-vs-3dstool (proven by the
+# seedtool); the normalizer-vs-reference fidelity compares the normalizer's
+# assembled NoCrypto NCCH regions against ctrtool's independent extraction
+# (staged by the seedtool), so all four regions — including exefs.bin with its
+# banner — are byte-identical (both sides are ctrtool's view). The banner
+# divergence only affects 3dstool-as-second-party, not this normalizer fidelity.
+# ---------------------------------------------------------------------------
+
+_P7X_TITLE_ID = "0004000000168700"
+_MEDIA_UNIT = 0x200
+
+
+def _slice_partition0(cci: Path, dest: Path) -> None:
+    """Slice NCCH partition 0 from a CCI .3ds via the NCSD partition table."""
+    with cci.open("rb") as fh:
+        fh.seek(0x120)  # partition 0 entry: (offset_units, size_units)
+        off_units, size_units = struct.unpack_from("<II", fh.read(8), 0)
+        offset = off_units * _MEDIA_UNIT
+        fh.seek(offset + 0x104)
+        content_units = struct.unpack_from("<I", fh.read(4), 0)[0]
+        fh.seek(offset + 0x118)
+        block_size_log = fh.read(1)[0]
+    block_size = 1 << (block_size_log + 9)
+    size = content_units * block_size
+    remaining = size
+    with cci.open("rb") as src, dest.open("wb") as out:
+        src.seek(offset)
+        while remaining:
+            chunk = src.read(min(1 << 20, remaining))
+            out.write(chunk)
+            remaining -= len(chunk)
+
+
+@skip_if_no_p7x_anchor
+def test_p7x_retail_decrypts_to_byteview_then_region_tree():
+    """Plain-7.x (keyslot 0x25) decrypts via the widened normalizer and composes
+    through three_ds_ncch with all protected hashes validating."""
+    ncch = P7X_CCI.parent / "_ncch_enc_p7x_probe.ncch"
+    try:
+        _slice_partition0(P7X_CCI, ncch)
+        view = normalize_3ds_ncch_enc(ncch)
+        assert isinstance(view, ByteView)
+        assert view.format == "3ds-ncch-enc"
+        tree = normalize_3ds_ncch(view.source)
+        # Kobayashi carries a logo region the Biohazard (CIA) anchor lacks.
+        assert {e.path for e in tree.entries} == {
+            "extendedheader.bin",
+            "logo.bin",
+            "plain.bin",
+            "exefs.bin",
+            "romfs.bin",
+        }
+        view.source.close()
+    finally:
+        ncch.unlink(missing_ok=True)
+
+
+@skip_if_no_p7x_anchor
+def test_p7x_retail_decrypted_regions_match_ctrtool_reference():
+    """The normalizer's assembled NoCrypto NCCH regions byte-equal ctrtool's
+    independent extraction (staged by the seedtool). Streamed so the ~1 GB
+    romfs never materializes whole (memory gate). The banner content — which
+    3dstool strips but ctrtool preserves — matches here because both the
+    normalizer's region and the reference are ctrtool's view."""
+    from substratum.verify import _first_diff
+
+    ncch = P7X_CCI.parent / "_ncch_enc_p7x_probe.ncch"
+    try:
+        _slice_partition0(P7X_CCI, ncch)
+        view = normalize_3ds_ncch_enc(ncch)
+        tree = normalize_3ds_ncch(view.source)
+        for entry in tree.entries:
+            ref = P7X_REFERENCE / entry.path
+            assert ref.is_file(), f"missing reference {entry.path}"
+            want_len = ref.stat().st_size
+            assert entry.size == want_len, (
+                f"{entry.path} length {entry.size} != reference {want_len}"
+            )
+            first = _first_diff(tree.open(entry), ref, entry.size, want_len)
+            assert first is None, (
+                f"fidelity: {entry.path} differs from ctrtool reference "
+                f"at byte {first} (lengths {entry.size} vs {want_len})"
+            )
+        view.source.close()
+    finally:
+        ncch.unlink(missing_ok=True)
+
+
+@skip_if_no_p7x_anchor
+def test_p7x_retail_manifest_records_plain7x_oracle():
+    doc = json.loads(P7X_MANIFEST.read_text("ascii"))
+    assert doc["identity"]["crypto"].startswith("plain-7.x")
+    assert doc["identity"]["seed_encrypted"] is False
+    assert doc["identity"]["title_id"] == _P7X_TITLE_ID
     assert doc["tool_versions"]["ctrtool"] == "CTRTool v1.3.0 (C) jakcron"
     assert doc["tool_versions"]["3dstool"] == "3dstool 1.2.6 by dnasdw"

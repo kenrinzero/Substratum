@@ -13,11 +13,15 @@ material (docs/3DS-KEYED-WORK.md). This mirrors the ``chd``→chdman precedent
 and is consistent with DESIGN.md §4: "runtime stdlib-only" means no pip/runtime
 dependencies, not no subprocess.
 
-Scope (first unit): ``ncchflag[3] == 0x00`` standard crypto (keyslot 0x2C)
-only. 7.x secured (0x01), New3DS 9.3 (0x0A), and seed 9.6 (0x0B / seed flag)
-are refused; the seed variant additionally needs ``--seed=``/``--seeddb=`` and
-is deferred. CIA container parsing is a separate later unit — this layer
-consumes the NCCH *content* slice.
+Scope: the no-seed encrypted variants ``ncchflag[3] in {0x00, 0x01}`` —
+standard crypto (keyslot 0x2C) and plain-7.x secured crypto (keyslot 0x25).
+Both carry a plaintext NCCH header and decrypt via the same ctrtool command
+with no seeddb (docs/3DS-KEYED-WORK.md § Plain-7.x two-party finding). Seed
+crypto (the 0x20 flag bit), New3DS 9.3 (0x0A), and New3DS 9.6 (0x0B) are
+refused; 7.x-seed is handled by the separate ``three_ds_ncch_enc_seed`` module
+(which consumes a whole CIA because it encrypts the header itself), and the
+seeded 9.6 path additionally needs ``--seeddb=``. CIA container parsing is a
+separate unit — this layer consumes the NCCH *content* slice.
 
 Runtime is stdlib-only per DESIGN.md §4.
 """
@@ -48,7 +52,11 @@ _OTHER_FLAGS_OFFSET = 0x18F
 _NO_ENCRYPTION = 1 << 2
 _SEEDED_AES_KEY_Y = 1 << 5
 _NCCH_FLAGS_OFFSET = 0x188
-_STANDARD_CRYPTO_FLAG = 0x00  # ncchflag[3]
+# ncchflag[3] values that decrypt with a plaintext header and no seeddb:
+# 0x00 = standard crypto (keyslot 0x2C), 0x01 = plain-7.x secured (0x25).
+# 7.x-seed is a separate module (header-encrypted, CIA-consuming); 9.3/9.6 are
+# out of scope.
+_NO_SEED_CRYPTO_FLAGS = frozenset({0x00, 0x01})
 
 _CONTENT_SIZE_UNITS_OFFSET = 0x104
 _EXHEADER_SIZE_OFFSET = 0x180
@@ -156,10 +164,10 @@ def _validate_encrypted_ncch_header(header: bytes, source_size: int) -> int:
         )
 
     crypto_method = header[_NCCH_FLAGS_OFFSET + 3]
-    if crypto_method != _STANDARD_CRYPTO_FLAG:
+    if crypto_method not in _NO_SEED_CRYPTO_FLAGS:
         raise ValueError(
-            f"non-standard NCCH crypto method 0x{crypto_method:02x}; "
-            "only standard crypto (0x00) is supported"
+            f"NCCH crypto method 0x{crypto_method:02x} is outside no-seed scope; "
+            "only standard (0x00) and plain-7.x (0x01) are supported here"
         )
 
     other_flags = header[_OTHER_FLAGS_OFFSET]
@@ -226,12 +234,14 @@ def _stage_source(src: ByteSource) -> Path:
 
 
 def sniff(source: ByteSource) -> bool:
-    """True for an encrypted standard-crypto NCCH.
+    """True for an encrypted no-seed NCCH (standard or plain-7.x crypto).
 
-    The NCCH magic at 0x100 is plaintext even in an encrypted title (the NCCH
-    header is not encrypted); the flags byte distinguishes encrypted from the
-    decrypted form ``three_ds_ncch`` handles. This sniffer is registered
-    *before* ``3ds-ncch`` so encrypted content dispatches here.
+    The NCCH magic at 0x100 is plaintext for both standard crypto and plain-7.x
+    (the header is not encrypted — unlike 7.x-seed, which encrypts the header
+    itself and is dispatched by ``three_ds_ncch_enc_seed``); the flags byte
+    distinguishes encrypted from the decrypted form ``three_ds_ncch`` handles.
+    This sniffer is registered *before* ``3ds-ncch`` so encrypted content
+    dispatches here.
     """
     if source.size() < _MAGIC_OFFSET + 4:
         return False
@@ -241,19 +251,22 @@ def sniff(source: ByteSource) -> bool:
     if flags[0] & _NO_ENCRYPTION:
         return False  # already decrypted -> 3ds-ncch's domain
     if flags[0] & _SEEDED_AES_KEY_Y:
-        return False  # seed crypto deferred
+        return False  # seed crypto -> three_ds_ncch_enc_seed's domain
     crypto = source.read_at(_NCCH_FLAGS_OFFSET + 3, 1)
-    return crypto[0] == _STANDARD_CRYPTO_FLAG
+    return crypto[0] in _NO_SEED_CRYPTO_FLAGS
 
 
 def normalize_3ds_ncch_enc(source) -> ByteView:
-    """Decrypt one standard-encrypted NCCH into a NoCrypto ``ByteView``.
+    """Decrypt one no-seed encrypted NCCH into a NoCrypto ``ByteView``.
 
-    Accepts a path (str/Path) or a ByteSource over an encrypted NCCH. The
-    returned ByteView's source is a temp file holding an assembled NoCrypto
-    NCCH image (the on-media header with plaintext regions, decrypted ExeFS /
-    RomFS / extended-header placed at their declared offsets, and the NoCrypto
-    flag set). ``three_ds_ncch`` consumes that image directly.
+    Accepts standard crypto (``ncchflag[3] == 0x00``) and plain-7.x secured
+    crypto (``0x01``); both carry a plaintext header and decrypt via the same
+    ctrtool command with no seeddb. Accepts a path (str/Path) or a ByteSource
+    over an encrypted NCCH. The returned ByteView's source is a temp file
+    holding an assembled NoCrypto NCCH image (the on-media header with
+    plaintext regions, decrypted ExeFS / RomFS / extended-header placed at
+    their declared offsets, and the NoCrypto flag set). ``three_ds_ncch``
+    consumes that image directly.
     """
     src = source if isinstance(source, ByteSource) else FileSource(source)
     source_size = src.size()
