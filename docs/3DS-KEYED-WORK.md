@@ -302,3 +302,46 @@ remaining variant** (New3DS-only, keyslot `0x18`, no seeddb, plaintext header,
 slice-decryptable — closest to plain-7.x), *if* a ctrtool build has working
 keyslot `0x1B`/`0x18` support; that tooling question is currently open for
 both New3DS keyslots.
+
+### 9.3 anchor hunt + the firmware-vs-crypto distinction (2026-07-30)
+
+Kenrin's hunt for a genuine 9.3 (`0x0A`) anchor confirmed it is **effectively
+lost media.** Three eShop candidates flagged "9.3" by title databases were all
+qualified via vendored ctrtool and turned out to be `ncchflag[3] == 0x01`
+(already-covered variants):
+
+| Title (eShop CIA) | title ID | `ncchflag[3]` | variant | in suite? |
+|---|---|---|---|---|
+| Adventure Bar Story (USA) | `0004000000160f00` | `0x01` | plain-7.x | ✓ (Kobayashi) |
+| Shin Hyu Stone (Japan) | `0004000000169b00` | `0x01` + seed | 7.x-seed | ✓ (BoxBoxBoy) |
+| 3D Gunstar Heroes (Japan) | `0004000000162600` | `0x01` + seed | 7.x-seed | ✓ (Mini Sports) |
+
+**Load-bearing lesson: a title's *firmware requirement* is unrelated to its
+NCCH *crypto method*.** "9.3" in title databases almost always denotes the
+**required system firmware** (a TMD/title-metadata field about runtime
+compatibility), NOT the NCCH keyslot. A title can require FW 9.3+ and still
+ship 7.x (`0x01`) crypto, because Nintendo only re-presses a title with a
+newer keyslot when it actually needs to — most late eShop titles kept the 7.0
+keyslot. Genuine `0x0A` (9.3 crypto) and `0x0B` (9.6 crypto) are rare: only
+titles actually built against those keyslots carry them, mostly specific
+New3DS exclusives in narrow windows.
+
+**How to qualify any future candidate (read the crypto method, never the FW):**
+
+```
+tools/ctrtool/ctrtool.exe -v <title>
+# look at the NCCH "Flags:" line, e.g. "0000000101030000"
+# the 4th byte (index 3) is ncchflag[3]:
+#   00 = standard (0x2C) | 01 = 7.x (0x25) | 0A = 9.3 (0x18) | 0B = 9.6 (0x1B)
+```
+
+ctrtool's `> Crypto Key` label maps 1:1 to `ncchflag[3]`: `Secure (0)` = `0x00`,
+`Secure (1)` = `0x01`, `Secure (11)` = `0x0B`, etc. The seed bit (`0x20` on
+`ncchflag[7]`) shows as the "(KeyY seeded)" suffix.
+
+**Consequence for the queue:** 9.3 is **opportunistic** — it falls out of the
+9.6 pure-Python AES-CTR path tooling-side (`0x18` keyX is parked), but it only
+becomes a real unit if a genuine `0x0A` anchor surfaces. The **lead next step
+is 9.6** (`0x0B`): it is fully actionable now via
+[`3DS-PURE-PYTHON-AES-CTR-PLAN.md`](3DS-PURE-PYTHON-AES-CTR-PLAN.md) with no
+new media (FE Warriors + the `0x1B` keyX are parked).

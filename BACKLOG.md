@@ -11,11 +11,12 @@ Version **0.0.17** is clean (post plain-7.x widening). **16 normalizers**
 are GREEN: the keyless/decrypted floor, the complete Wii chain, the CIA
 container, and the 3DS encrypted-NCCH variants — standard + plain-7.x crypto
 (`3ds-ncch-enc`, no-seed `{0x00, 0x01}`) and 7.x-seed (`3ds-ncch-enc-seed`).
-The remaining deferred work is the New3DS variants: 9.3 (`0x0A`/`0x18`,
-tooling untested) and 9.6 (`0x0B`/`0x1B`, **blocked** — vendored ctrtool
-v1.3.0 cannot decrypt the parked FE Warriors anchor; keyslot `0x1B`'s keyX
-appears unavailable). See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
-§ "CORRECTION (2026-07-30)".
+**Next step: New3DS 9.6 (`0x0B`/`0x1B`) via the planned pure-Python AES-CTR
+path** ([`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md))
+— no new media needed (FE Warriors + the `0x1B` keyX are parked). 9.3
+(`0x0A`/`0x18`) is opportunistic: tooling-free once 9.6 lands, but a genuine
+`0x0A` anchor is effectively lost media. See
+[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION (2026-07-30)".
 
 ## Done
 
@@ -67,6 +68,17 @@ appears unavailable). See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
       ctrtool preserves (documented tooling difference, not a decrypt
       disagreement).
 
+- [x] **9.3 anchor hunt (investigation, 2026-07-30):** confirmed genuine
+      `0x0A`-crypto titles are effectively lost media. Three database-"9.3"
+      eShop candidates (Adventure Bar Story, Shin Hyu Stone, 3D Gunstar
+      Heroes) all qualified as `ncchflag[3]==0x01` (one plain-7.x, two
+      7.x-seed) — i.e. already-covered variants. **Load-bearing lesson: a
+      title's firmware requirement is unrelated to its NCCH crypto method.**
+      "9.3" in title databases usually means the *required FW*, not the
+      keyslot; a late-shipping title can require FW 9.3+ yet still ship 7.x
+      (`0x01`) crypto. Read ctrtool `-v`'s `Flags:` 4th byte (`00`/`01`/`0A`/
+      `0B`), never the firmware version.
+
 - [x] **Proof and hardening pass:** independent-tool differential checks,
       retail/homebrew anchors, path and header rejection, streaming and
       memory-discipline protections, and pinned tool versions are recorded in
@@ -74,29 +86,26 @@ appears unavailable). See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
 
 ## Next (in dispatch order)
 
-- [ ] **New3DS 9.3 variant:** `ncchflag[3] == 0x0A`, keyslot `0x18`,
-      New3DS-only, no seeddb (the `0x20` keyY generator postdates 9.3).
-      Architecturally the simplest remaining variant (plaintext header,
-      slice-decryptable — closest to plain-7.x). **Tooling caveat (2026-07-30):**
-      whether keyslot `0x18`'s keyX is available to vendored ctrtool v1.3.0 is
-      **untested** — the 9.6 keyslot `0x1B` proved unavailable on the same
-      build, so a 9.3 anchor must be confirmed to decrypt *before* this unit is
-      dispatched. Needs an encrypted retail anchor; no extra artifact.
+- [ ] **New3DS 9.6 variant (the lead next step):** `ncchflag[3] == 0x0B`,
+      keyslot `0x1B`. **Actionable now via the planned pure-Python AES-CTR
+      path** — see
+      [`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md).
+      No new media needed: the parked **Fire Emblem Warriors** `.3ds` is the
+      `0x0B` anchor and the `0x1B` keyX is already in the parked keysets
+      (vendored ctrtool v1.3.0 cannot decrypt it — "NcchHeader corrupted",
+      keyslot `0x1B` unavailable — which is *why* the pure-Python path exists).
+      Two-session build: (A) extend `_aes.py` with AES-CTR + the key-generator
+      formula; (B) the `three_ds_ncch_enc_96` normalizer + FE Warriors retail
+      proof. The seeddb stays parked for the seeded sub-variant.
 
-- [ ] **New3DS 9.6 variant:** `ncchflag[3] == 0x0B`, keyslot `0x1B`. **BLOCKED
-      on tooling (2026-07-30 correction):** the parked **Fire Emblem Warriors**
-      `.3ds` is the right format anchor (`0x0B`), but vendored ctrtool v1.3.0
-      **cannot decrypt it** (0 files under all tested conditions; "NcchHeader
-      corrupted") — keyslot `0x1B`'s keyX appears unavailable to this build,
-      while keyslot `0x25` (7.x-seed, BoxBoxBoy) works. The seeddb stays parked
-      and is required for seeded-9.6 titles only (never 9.3). Unblocks on a
-      ctrtool build with working `0x1B`, or a pure-Python AES-CTR path. **The
-      pure-Python path is now PLANNED** — see
-      [`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md)
-      (full algorithm + two-session build plan; the `0x1B` keyX is already in
-      the parked keysets, so no new media is needed for 9.6). It also unblocks
-      9.3 tooling-side. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
-      § "CORRECTION" for the failed-decrypt verification.
+- [ ] **New3DS 9.3 variant (opportunistic — media-scarce):** `ncchflag[3] ==
+      0x0A`, keyslot `0x18`, no seeddb. Tooling-wise this falls out of the 9.6
+      pure-Python path for free (`0x18` keyX is in the parked keyset), **but it
+      still needs a genuine `0x0A` retail anchor**, which Kenrin's hunt
+      confirms is effectively lost media (2026-07-30: three database-"9.3"
+      titles all turned out `0x01` — see the finding below). **Read the crypto
+      method, not the firmware version:** a title can require FW 9.3+ and still
+      ship 7.x (`0x01`) crypto. This unit only lands if a real `0x0A` surfaces.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and

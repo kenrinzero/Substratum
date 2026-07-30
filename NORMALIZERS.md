@@ -33,22 +33,30 @@ at his convenience; never committed, metadata only in outputs).
 | cia | install container | T2 | **GREEN** (2026-07-29, `substratum/formats/three_ds_cia.py`) | synthetic two-content CIA (`fixtures/3ds_cia/synthetic/`, seedtool-authored; committed manifest + reference bytes) + retail metadata anchor **Biohazard — The Mercenaries 3D (Japan)** `.cia` (698,837,440 bytes, single content) — `stage_3ds_cia_retail_anchor.py` commits only provenance + manifest while the on-media encrypted content blob stays gitignored | ctrtool **v1.3.0** supplies the independent CIA identity (title ID, content size, NCCH recognition); the TMD content-chunk record's declared SHA-256 is the correctness anchor (the on-media content blob streams to that exact hash); fidelity sample seed **1** (all sections, streamed) | none new (stdlib `struct`/`hashlib`) | CIA outer container only: a `FileTree` of opaque section slices (header/certs/ticket/tmd/content.\<idx\>.ncch per TMD record/footer). Section layout is header-driven with **64-byte per-section alignment** (content lands at `align64(header+cert+ticket+tmd)`, verified = 0x3900 on Biohazard). The TMD (3DBrew layout: RSA-2048 sig region + fixed header + content-chunk records at `0x9C4+sig`, each `0x30` bytes) supplies per-content index/size/hash; **full multi-content support** (each chunk 64-aligned, hashed against its TMD record). Does NOT decrypt the ticket, parse the NCCH content, or validate TMD RSA signatures — a caller composes `3ds-ncch-enc` then `3ds-ncch`. Refuses bad header size/type/version, zero content, sections that do not tile the file, TMD content-chunk records that do not tile the content section, duplicate/non-ascending content indices, content hash mismatch, and overlapping sections structurally. |
 | 3ds-ncch-enc-seed | container (decode; 7.x-seed) | T2 | **GREEN** (2026-07-29, `substratum/formats/three_ds_ncch_enc_seed.py`) | retail anchors **BoxBoxBoy! (USA) (eShop)** `.cia` (94,181,696 bytes, title ID `000400000018ee00`) primary + **Mini Sports Collection (USA) (eShop)** `.cia` (69,691,712 bytes) secondary in gitignored `fixtures/_local/`; both `Secure (1) (KeyY seeded)`, keyslot `0x25`; `stage_3ds_ncch_enc_seed_retail_anchor.py` commits only provenance + manifests while decrypted region references stay gitignored | ctrtool **v1.3.0** (vendored; 7.x keyslot `0x25` compiled in) + operator-supplied **seeddb** (`SUBSTRATUM_CTRTOOL_SEEDDB`, gitignored `fixtures/_local/seeddb.bin`); the NCCH-declared protected SHA-256 hashes are the correctness anchor (ctrtool `-y` GOOD + runtime compose through `three_ds_ncch`); 3dstool CANNOT serve as a second decryptor (handles neither the CIA nor a raw 7.x-seed slice — both fail on the encrypted header) | vendored ctrtool + parked seeddb (env-var boundary, presence-only reporting, never hashed/logged/committed) | **Architecture: ctrtool-at-runtime (whole CIA + `--seeddb`) → decrypted NCCH `ByteView` → caller composes through `three_ds_ncch`.** Separate module from `3ds-ncch-enc` because the input is a **whole CIA**, not a raw NCCH slice: the 7.x-seed variant **encrypts the NCCH header itself** (magic at 0x100 is ciphertext), so ctrtool cannot decrypt a raw slice in isolation — it needs the CIA's ticket to decrypt the header first. ctrtool exposes the decrypted regions but not the decrypted header, so the normalizer **reconstructs the 0x200 header** (region table + protected hashes + NoCrypto flag) from ctrtool's parsed report. Scope: 7.x-seed (`Secure 1 KeyY seeded`) only; plain 7.x (no seed), 9.3, 9.6 stay deferred. Two retail anchors (BoxBoxBoy + Mini Sports) catch variant bugs. Key discipline: seeddb via env var, presence-only reporting, never hashed/logged/committed; no decrypted retail payloads enter git. |
 
-**Dispatch order updated 2026-07-30 (corrected):** the no-seed encrypted-NCCH
-scope is GREEN for both standard crypto (`0x00`) and plain-7.x (`0x01`) — the
-`3ds-ncch-enc` normalizer accepts `ncchflag[3]` in `{0x00, 0x01}` with a
-plaintext header and slice-decrypts via vendored ctrtool (keyslots `0x2C` /
-`0x25` compiled in, no seeddb). Retail anchors: Biohazard (standard) +
-Kobayashi (plain-7.x). `3ds-ncch-enc-seed` (GREEN, 16th normalizer) handles
-7.x-seed via a whole CIA + the operator-supplied seeddb. The remaining
-deferred variants are New3DS 9.3 (`0x0A`, keyslot `0x18`) and 9.6 (`0x0B`,
-keyslot `0x1B`). **CORRECTION:** an earlier note claimed the parked FE
-Warriors `.3ds` (9.6) "decrypts seeddb-free." That was a test-hygiene artifact
-and is retracted. FE Warriors is the right 9.6 format anchor but vendored
-ctrtool v1.3.0 **cannot decrypt it at all** (0 files, "NcchHeader corrupted";
-keyslot `0x1B`'s keyX appears unavailable, while `0x25` works on BoxBoxBoy).
-Both New3DS variants are therefore tooling-blocked (9.3 untested, 9.6
-confirmed blocked); the seeddb stays parked and is relevant only to seeded-9.6
-titles. Full detail in `docs/3DS-KEYED-WORK.md` § "CORRECTION (2026-07-30)".
+**Dispatch order updated 2026-07-30 (corrected, consolidated):** the no-seed
+encrypted-NCCH scope is GREEN for both standard crypto (`0x00`) and plain-7.x
+(`0x01`) — the `3ds-ncch-enc` normalizer accepts `ncchflag[3]` in `{0x00, 0x01}`
+with a plaintext header and slice-decrypts via vendored ctrtool (keyslots
+`0x2C` / `0x25` compiled in, no seeddb). Retail anchors: Biohazard (standard)
++ Kobayashi (plain-7.x). `3ds-ncch-enc-seed` (GREEN, 16th normalizer) handles
+7.x-seed via a whole CIA + the operator-supplied seeddb.
+
+**Next unit: New3DS 9.6 (`0x0B`, keyslot `0x1B`) via pure-Python AES-CTR**
+([`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md)).
+No new media needed — the parked FE Warriors `.3ds` is the `0x0B` anchor and
+the `0x1B` keyX is in the parked keysets; vendored ctrtool v1.3.0 cannot
+decrypt it (the "seeddb-free" claim from `53ed3de` is retracted — it was a
+test-hygiene artifact), so the pure-Python path reads the keyX directly.
+Two-session build: extend `_aes.py` with CTR + the key-generator formula, then
+the `three_ds_ncch_enc_96` normalizer.
+
+New3DS 9.3 (`0x0A`, keyslot `0x18`) is **opportunistic**: it falls out of the
+9.6 pure-Python path tooling-side (`0x18` keyX is parked), but needs a genuine
+`0x0A` anchor — which a 2026-07-30 hunt confirmed is effectively lost media
+(three database-"9.3" titles all qualified as `0x01`). **The firmware version
+a title requires is unrelated to its NCCH crypto method** — read ctrtool `-v`'s
+`Flags:` byte, not the FW. Full detail in `docs/3DS-KEYED-WORK.md` §
+"CORRECTION (2026-07-30)".
 
 
 **PS1 streaming proof (2026-07-26):** the frozen four-check semantics and
