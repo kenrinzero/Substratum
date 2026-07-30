@@ -168,23 +168,27 @@ work is the rarer 3DS crypto variants:
    `substratum/formats/three_ds_ncch_enc_seed.py` decrypts via vendored
    ctrtool + the operator-supplied seeddb. Anchors: BoxBoxBoy + Mini Sports.
 3. **Plain 7.x** (`ncchflag[3] == 0x01`, no seed bit, `Crypto Key Secure (1)`
-   with no "(KeyY seeded)" suffix) — **fixture fulfilled 2026-07-29; next
-   dispatchable unit.** Retail anchor parked at gitignored
-   `fixtures/_local/3DS1333 - Kobayashi ga Kawai Sugite Tsurai!! Game Demo Kyun
-   Moe MAX ga Tomara Nai (Japan).3ds` (CCI/`.3ds`, title ID
-   `0004000000168700`, product `CTR-P-BKQJ`, `Title seed check 00000000`,
-   verified `Secure (1)` no-seed). **Architecturally close to `3ds-ncch-enc`,
-   NOT to `3ds-ncch-enc-seed`** — plain 7.x has a *plaintext* NCCH header
-   (magic at 0x100 is `NCCH`), so it is slice-decryptable and consumes a raw
-   NCCH slice (sliced from the CCI via `3ds-cci`), not a whole CIA. The only
-   difference from standard crypto is `ncchflag[3]==0x01` (keyslot `0x25`)
-   instead of `0x00` (`0x2C`); ctrtool handles it with the same command and
-   no seeddb. Likely implementation: widen `3ds-ncch-enc`'s sniff + scope
-   (accept `ncchflag[3]` in `{0x00, 0x01}` no-seed) rather than a new module.
-4. **New3DS 9.3** (`ncchflag[3] == 0x0A`, keyslot `0x18`) — needs an
-   encrypted retail anchor; ctrtool has the keyslot compiled in.
-5. **New3DS 9.6 seed** (`ncchflag[3] == 0x0B`, keyslot `0x1B`) — needs an
-   encrypted retail anchor; the seeddb is already parked.
+   with no "(KeyY seeded)" suffix) — DONE (2026-07-30, `53ed3de`). The
+   `3ds-ncch-enc` normalizer was widened to accept `ncchflag[3]` in `{0x00,
+   0x01}`; Kobayashi is the retail anchor. Plain-7.x two-party refinement
+   (ctrtool/3dstool agree on content; 3dstool strips a banner signature region)
+   recorded above.
+4. **New3DS 9.3** (`ncchflag[3] == 0x0A`, keyslot `0x18`) — **tooling
+   untested, media scarce.** Whether ctrtool v1.3.0 has a working `0x18` is
+   unknown; per the 9.6 correction below, assume it does NOT until proven. The
+   pure-Python AES-CTR path (item 5's plan) covers 9.3 with no extra work once
+   built — `slot0x18KeyX` is in the parked keyset — but a 9.3 retail anchor
+   title is still needed and Kenrin reports the late-library titles are
+   effectively lost media.
+5. **New3DS 9.6** (`ncchflag[3] == 0x0B`, keyslot `0x1B`) — **BLOCKED on
+   tooling, PLANNED via pure-Python AES-CTR.** Vendored ctrtool v1.3.0 cannot
+   decrypt the parked FE Warriors anchor (keyslot `0x1B` unavailable; see
+   "CORRECTION (2026-07-30)" above). The `0x1B` keyX IS in the parked keysets,
+   so the fix is a pure-Python AES-CTR normalizer that reads it directly — see
+   [`3DS-PURE-PYTHON-AES-CTR-PLAN.md`](3DS-PURE-PYTHON-AES-CTR-PLAN.md) for the
+   full algorithm (normalkey key-gen formula, seed-keyY derivation, CTR
+   counter) and the two-session build plan. FE Warriors is the anchor; the
+   seeddb is parked for the seeded sub-variant.
 
 ### Load-bearing empirical findings
 

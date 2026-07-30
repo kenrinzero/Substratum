@@ -90,8 +90,13 @@ appears unavailable). See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
       corrupted") — keyslot `0x1B`'s keyX appears unavailable to this build,
       while keyslot `0x25` (7.x-seed, BoxBoxBoy) works. The seeddb stays parked
       and is required for seeded-9.6 titles only (never 9.3). Unblocks on a
-      ctrtool build with working `0x1B`, or a pure-Python AES-CTR path. See
-      [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION".
+      ctrtool build with working `0x1B`, or a pure-Python AES-CTR path. **The
+      pure-Python path is now PLANNED** — see
+      [`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md)
+      (full algorithm + two-session build plan; the `0x1B` keyX is already in
+      the parked keysets, so no new media is needed for 9.6). It also unblocks
+      9.3 tooling-side. See [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md)
+      § "CORRECTION" for the failed-decrypt verification.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and
