@@ -40,6 +40,7 @@ import hashlib
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import weakref
@@ -160,8 +161,6 @@ def _is_cia(source: ByteSource) -> bool:
     if source.size() < 0x40:
         return False
     header = source.read_at(0, 0x40)
-    import struct
-
     if struct.unpack_from("<I", header, 0x00)[0] != 0x2020:
         return False
     archive_type = struct.unpack_from("<H", header, 0x04)[0]
@@ -172,8 +171,6 @@ def _is_cia(source: ByteSource) -> bool:
 
 def _content_offset(cia: Path) -> int:
     """Compute the CIA content-section offset via 64-byte per-section alignment."""
-    import struct
-
     def align64(x: int) -> int:
         return (x + 0x3F) // 0x40 * 0x40
 
@@ -287,8 +284,6 @@ def _assemble_nocrypto_ncch(
     block-size log, region table, protected hashes, NoCrypto flag) from the
     parsed report, then places each decrypted region at its declared offset.
     """
-    import struct
-
     content_size = _hex_field(report, "Content size")
     block_size = _hex_field(report, "BlockSize") or 0x200
     block_size_log = block_size.bit_length() - 10  # block = 1 << (log + 9)
