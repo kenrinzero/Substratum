@@ -7,16 +7,19 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.17** is clean (post plain-7.x widening). **16 normalizers**
-are GREEN: the keyless/decrypted floor, the complete Wii chain, the CIA
-container, and the 3DS encrypted-NCCH variants — standard + plain-7.x crypto
-(`3ds-ncch-enc`, no-seed `{0x00, 0x01}`) and 7.x-seed (`3ds-ncch-enc-seed`).
-**Next step: New3DS 9.6 (`0x0B`/`0x1B`) via the planned pure-Python AES-CTR
-path** ([`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md))
-— no new media needed (FE Warriors + the `0x1B` keyX are parked). 9.3
-(`0x0A`/`0x18`) is opportunistic: tooling-free once 9.6 lands, but a genuine
-`0x0A` anchor is effectively lost media. See
-[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION (2026-07-30)".
+Version **0.0.18** is clean (post New3DS 9.6). **17 normalizers** are GREEN:
+the keyless/decrypted floor, the complete Wii chain, the CIA container, and the
+full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
+no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
+(`3ds-ncch-enc-96`, pure-Python AES-CTR, `0x0B`/`0x1B`). The 9.6 unit bypasses
+vendored ctrtool entirely and implements the **two-key NCCH model**
+(exheader/ExeFS-superblock/ExeFS-tail = Key0/`0x2C`; `.code`+RomFS =
+Key1/`0x1B`). **Next: New3DS 9.3 (`0x0A`/`0x18`) is opportunistic only** —
+tooling falls out of the 9.6 path, but a genuine `0x0A` anchor is effectively
+lost media. See
+[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION (2026-07-30)"
+and the two-key finding in
+[`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md).
 
 ## Done
 
@@ -84,28 +87,33 @@ path** ([`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PL
       memory-discipline protections, and pinned tool versions are recorded in
       `NORMALIZERS.md` and the archived project log.
 
-## Next (in dispatch order)
+- [x] **New3DS 9.6 encrypted NCCH (`3ds-ncch-enc-96`):** pure-Python AES-128-CTR
+      (NIST SP 800-38A F.5.1 anchored) + the 3DS hardware key-generator decrypt
+      no-seed `0x0B` NCCH content, bypassing vendored ctrtool v1.3.0 (which
+      cannot decrypt keyslot `0x1B`). Retail anchor: Fire Emblem Warriors (USA)
+      `.3ds`. **Load-bearing finding — the two-key NCCH model:** a 9.6 NCCH uses
+      TWO normal keys derived from the same keyY but different keyX slots —
+      Key0 (`0x2C`) encrypts the extended header, the ExeFS superblock, and the
+      ExeFS tail; Key1 (`0x1B`) encrypts the first ExeFS file (`.code`) and the
+      entire RomFS. The ExeFS is one continuous CTR stream whose key switches
+      mid-stream. The protected-hash gate caught the naive "one key per region"
+      assumption before commit. The committed synthetic (generated test keys)
+      exercises the real decrypt path + the ExeFS key split — a stronger
+      synthetic than standard-crypto's (which could only author a decrypted
+      image). No-seed 9.6 only this unit; seeded-9.6 and 9.3 are the same code
+      path once an anchor exists.
 
-- [ ] **New3DS 9.6 variant (the lead next step):** `ncchflag[3] == 0x0B`,
-      keyslot `0x1B`. **Actionable now via the planned pure-Python AES-CTR
-      path** — see
-      [`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md).
-      No new media needed: the parked **Fire Emblem Warriors** `.3ds` is the
-      `0x0B` anchor and the `0x1B` keyX is already in the parked keysets
-      (vendored ctrtool v1.3.0 cannot decrypt it — "NcchHeader corrupted",
-      keyslot `0x1B` unavailable — which is *why* the pure-Python path exists).
-      Two-session build: (A) extend `_aes.py` with AES-CTR + the key-generator
-      formula; (B) the `three_ds_ncch_enc_96` normalizer + FE Warriors retail
-      proof. The seeddb stays parked for the seeded sub-variant.
+## Next (in dispatch order)
 
 - [ ] **New3DS 9.3 variant (opportunistic — media-scarce):** `ncchflag[3] ==
       0x0A`, keyslot `0x18`, no seeddb. Tooling-wise this falls out of the 9.6
-      pure-Python path for free (`0x18` keyX is in the parked keyset), **but it
-      still needs a genuine `0x0A` retail anchor**, which Kenrin's hunt
-      confirms is effectively lost media (2026-07-30: three database-"9.3"
-      titles all turned out `0x01` — see the finding below). **Read the crypto
-      method, not the firmware version:** a title can require FW 9.3+ and still
-      ship 7.x (`0x01`) crypto. This unit only lands if a real `0x0A` surfaces.
+      pure-Python path for free (`0x18` keyX is in the parked keyset, same
+      module), **but it still needs a genuine `0x0A` retail anchor**, which
+      Kenrin's hunt confirms is effectively lost media (2026-07-30: three
+      database-"9.3" titles all turned out `0x01` — see the finding above).
+      **Read the crypto method, not the firmware version:** a title can require
+      FW 9.3+ and still ship 7.x (`0x01`) crypto. This unit only lands if a real
+      `0x0A` surfaces.
 
 - [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
       Kura, and Interlinear) consume only the frozen contract types and

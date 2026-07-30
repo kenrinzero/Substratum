@@ -1,12 +1,15 @@
 # Plan — pure-Python AES-CTR for New3DS 9.6 (and 9.3) NCCH
 
-> **Status: PLANNED (2026-07-30, session #230).** A prep row, not a build.
-> Records the chosen path for unblocking the New3DS encrypted-NCCH variants
-> (9.6 `0x0B`/`0x1B` first; 9.3 `0x0A`/`0x18` falls out for free) without
-> depending on which keyslots a given ctrtool build compiled in. See
-> `docs/3DS-KEYED-WORK.md` § "CORRECTION (2026-07-30)" for why this is needed:
-> vendored ctrtool v1.3.0 cannot decrypt keyslot `0x1B` (FE Warriors) despite
-> the `0x1B` keyX being present in the parked keysets.
+> **Status: BUILT (2026-07-30, sessions #256).** 9.6 (`0x0B`) is GREEN. The
+> prep was scoped 2026-07-30 (session #230); Sessions A + B both landed in
+> session #256. This record now also documents the **two-key NCCH decryption
+> model** — the load-bearing finding that emerged during Session B and that the
+> protected-hash gate caught before any commit. 9.3 (`0x0A`/`0x18`) remains
+> opportunistic (tooling-ready, no anchor).
+> See `docs/3DS-KEYED-WORK.md` § "CORRECTION (2026-07-30)" for why the
+> pure-Python path was needed: vendored ctrtool v1.3.0 cannot decrypt keyslot
+> `0x1B` (FE Warriors) despite the `0x1B` keyX being present in the parked
+> keysets.
 
 ## Why pure-Python, not a different ctrtool build
 
@@ -121,37 +124,74 @@ Tests (`tests/test_aes_ctr.py`): NIST CTR vectors (green); rotation
 identities (`rol(ror(x,41),41)==x`); a synthetic keyX/keyY → normalkey →
 CTR-encrypt-known-plaintext → decrypt round-trip.
 
-### Session B — the 9.6 normalizer + retail proof
+### Session B — the 9.6 normalizer + retail proof (DONE 2026-07-30, #256)
+
+> **Status: SHIPPED.** `substratum/formats/three_ds_ncch_enc_96.py` + tests +
+> seedtool landed. The load-bearing finding that emerged during implementation
+> — the **two-key NCCH decryption model** — is recorded below because it
+> contradicted the plan's "one key per region" assumption and was the single
+> thing the protected-hash gate caught before commit.
 
 New module `substratum/formats/three_ds_ncch_enc_96.py` (parallel to
 `three_ds_ncch_enc_seed.py`, not a widening — 9.6 is a meaningfully different
 dispatch shape):
 
 - **Keyset boundary** (mirrors `wii-partition`'s
-  `SUBSTRATUM_WII_COMMON_KEY_FILE`): an env var
-  (e.g. `SUBSTRATUM_3DS_KEYSET_FILE`) names the operator-supplied
-  `aes_keys.txt`; the loader reads only the needed `slot0x1BKeyX` /
-  `slot0x18KeyX` lines, reports presence-only, never hashes/logs/echoes a key
-  byte. Fails closed when absent.
-- **Seeddb boundary:** `SUBSTRATUM_CTRTOOL_SEEDDB` (already parked) for seeded
-  titles; presence-only, same discipline.
-- **Decrypt path:** read NCCH header → derive keyY (seed step if `0x20` set +
-  seeddb lookup) → normalkey via the key generator → CTR-decrypt each encrypted
-  region at its offset → assemble a NoCrypto NCCH ByteView → caller composes
-  `three_ds_ncch`. Bounded LRU cache of decrypted region windows (mirror
+  `SUBSTRATUM_WII_COMMON_KEY_FILE`): `SUBSTRATUM_3DS_KEYSET_FILE` names the
+  operator-supplied `aes_keys.txt`; the loader reads only the needed
+  `slot0x2CKeyX` + `slot0x1BKeyX` (or `0x18`) lines, reports presence-only,
+  never hashes/logs/echoes a key byte. Fails closed when absent.
+- **No-seed scope only this unit:** FE Warriors is `ncchflag[3]==0x0B` with the
+  seed bit **clear** (`seedcheck=0`), so no seeddb is needed. The seeded-9.6
+  sub-variant (seed bit set) is deferred to a future widening.
+- **Decrypt path:** read NCCH header → load both keyX values → derive the two
+  normal keys (both from keyY = signature[:16]) → lazy CTR-decrypt the encrypted
+  sub-spans on demand → present a NoCrypto NCCH ByteView → caller composes
+  `three_ds_ncch`. Bounded LRU cache of decrypted 4 KiB block windows (mirror
   `_DecryptedPartitionSource`), since pure-Python AES is ~0.5 MiB/s and the FE
-  Warriors romfs is ~1 GB.
-- **Sniffer:** registered before `3ds-ncch-enc` and `3ds-ncch`; accepts
-  `ncchflag[3] == 0x0B` (and, once proven, `0x0A`) with NoCrypto clear.
+  Warriors romfs is ~1.9 GB.
+- **Sniffer:** registered **before** `3ds-ncch-enc` and `3ds-ncch`; accepts
+  `ncchflag[3] in {0x0A, 0x0B}` with NoCrypto clear and the seed bit clear.
 - **Retail proof (FE Warriors):** the NCCH-declared protected hashes are the
   independent correctness anchor — decrypt → compose `three_ds_ncch` → its
-  protected-hash validation must pass. 3dstool cannot second-party 9.6 (no
-  `--seeddb`, "file type mismatch"), so the protected-hash gate carries the
-  proof, as it does for 7.x-seed. Bounded sampled reads (head+tail per region)
-  keep the pure-Python-AES runtime tractable.
-- **Synthetic fixture:** authorable once CTR-encrypt exists (Session A's
-  encrypt path) — generate a 9.6-shaped NCCH with a test keyX/keyY, exercise
-  the structural/refusal/composition paths without the retail anchor.
+  protected-hash validation passes on real retail bytes (verified). 3dstool
+  cannot second-party 9.6 (no `--seeddb`, lacks a working `0x1B` decrypt path
+  here), so the protected-hash gate carries the proof, as it does for 7.x-seed.
+- **Synthetic fixture (SHIPPED, stronger than standard-crypto's):** because the
+  9.6 path is pure-Python, the seedtool encrypts a known-plaintext NCCH with
+  **generated test** keyX/keyY pairs and the normalizer decrypts it back — a
+  committed fixture that exercises the *real* decrypt path AND the two-key ExeFS
+  split. The standard-crypto unit could only author a decrypted image.
+
+#### LOAD-BEARING FINDING: the two-key NCCH decryption model
+
+The plan assumed each encrypted region decrypts with one key (the `0x1B`
+normalkey). That is **wrong**, and the protected-hash gate caught it before any
+commit. A New3DS-9.6 NCCH has **two** AES normal keys, both derived from the
+same keyY (signature[:16]) but different keyX slots (ground-truthed from
+`dnasdw/3dstool src/ncch.cpp` extract, lines 151-224; verified against FE
+Warriors retail bytes 2026-07-30):
+
+- **Key0** (`slot0x2C`, the original content keyslot): encrypts the **extended
+  header**, the **ExeFS superblock** (the 0x200 header), and the **ExeFS bytes
+  after the first file**.
+- **Key1** (`slot0x1B` for 9.6 / `slot0x18` for 9.3, the "new" keyslot):
+  encrypts the **first ExeFS file's content (`.code`)** and the **entire
+  RomFS**.
+
+The ExeFS region is decrypted as ONE continuous CTR stream whose key switches
+mid-stream: Key0 over `[0, 0x200)`, Key1 over `[0x200, 0x200+code_size)`, Key0
+over the remainder. The counter never resets between these sub-spans (the byte
+offset advances the keystream; the region magic is set once per region). This is
+why ctrtool `-v` prints both `NCCH AES Key0` and `NCCH AES Key1` for a 9.6
+title. The normalizer builds a sorted list of `(offset, size, key_index, magic)`
+sub-spans and decrypts each with its key; ExeFS sub-spans share one
+`region_base` (the exefs offset) so their counter block indices stay
+continuous. The committed synthetic fixture exercises all three ExeFS sub-spans.
+
+This two-key split also applies to standard/7.x crypto (the same `Old`/`New`
+key indices), but the ctrtool-subprocess modules never had to model it —
+ctrtool does it internally. Only the pure-Python 9.6 path had to encode it.
 
 ### After Session B
 

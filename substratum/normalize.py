@@ -34,6 +34,10 @@ from substratum.formats.three_ds_ncch_enc import (
     normalize_3ds_ncch_enc,
     sniff as sniff_3ds_ncch_enc,
 )
+from substratum.formats.three_ds_ncch_enc_96 import (
+    normalize_3ds_ncch_enc_96,
+    sniff as sniff_3ds_ncch_enc_96,
+)
 from substratum.formats.three_ds_ncch_enc_seed import (
     normalize_3ds_ncch_enc_seed,
     sniff as sniff_3ds_ncch_enc_seed,
@@ -74,6 +78,16 @@ _FORMATS = (
     _Format("3ds-cci", sniff_3ds_cci, normalize_3ds_cci),
     _Format("cia", sniff_3ds_cia, normalize_3ds_cia),
     _Format("3ds-ncch-enc-seed", sniff_3ds_ncch_enc_seed, normalize_3ds_ncch_enc_seed),
+    # New3DS 9.6/9.3 must precede both the standard encrypted and the decrypted
+    # NCCH sniffers: its header is plaintext (so 3ds-ncch would also claim it),
+    # and it carries ncchflag[3] in {0x0A, 0x0B} — outside the {0x00,0x01} set
+    # 3ds-ncch-enc accepts. Registered first so 0x0A/0x0B dispatch to pure-Python
+    # CTR decryption (vendored ctrtool cannot decrypt keyslot 0x1B/0x18).
+    _Format(
+        "3ds-ncch-enc-96",
+        sniff_3ds_ncch_enc_96,
+        normalize_3ds_ncch_enc_96,
+    ),
     # Encrypted NCCH must precede its decrypted sibling: an encrypted content's
     # NCCH magic is plaintext, so both sniffers see it; this one accepts only
     # the encrypted (standard-crypto) form and routes it to decryption.

@@ -180,20 +180,15 @@ work is the rarer 3DS crypto variants:
    built — `slot0x18KeyX` is in the parked keyset — but a 9.3 retail anchor
    title is still needed and Kenrin reports the late-library titles are
    effectively lost media.
-5. **New3DS 9.6** (`ncchflag[3] == 0x0B`, keyslot `0x1B`) — **BLOCKED on
-   tooling, PLANNED via pure-Python AES-CTR.** Vendored ctrtool v1.3.0 cannot
-   decrypt the parked FE Warriors anchor (keyslot `0x1B` unavailable; see
-   "CORRECTION (2026-07-30)" above). The `0x1B` keyX IS in the parked keysets,
-   so the fix is a pure-Python AES-CTR normalizer that reads it directly — see
-   [`3DS-PURE-PYTHON-AES-CTR-PLAN.md`](3DS-PURE-PYTHON-AES-CTR-PLAN.md) for the
-   full algorithm (normalkey key-gen formula, seed-keyY derivation, CTR
-   counter) and the two-session build plan. FE Warriors is the anchor; the
-   seeddb is parked for the seeded sub-variant. **Session A DONE 2026-07-30
-   (#256):** `substratum/_aes.py` now has `aes128_ctr_xor` (NIST SP 800-38A
-   F.5.1-anchored) + `normalkey_from_keyxy` (C1
-   `1FF9E9AAC5FE0408024591DC5D52768A` + ROL-87, pinned from 3dstool source and
-   cross-confirmed by RomForge/BizHawk). 345 tests green. **Next: Session B**
-   — the `three_ds_ncch_enc_96` normalizer + FE Warriors retail proof.
+5. **New3DS 9.6** (`ncchflag[3] == 0x0B`, keyslot `0x1B`) — **DONE (2026-07-30,
+   #256).** `substratum/formats/three_ds_ncch_enc_96.py` decrypts no-seed 9.6
+   NCCH in pure Python, bypassing vendored ctrtool (which cannot decrypt
+   keyslot `0x1B`). FE Warriors is the anchor; the committed synthetic
+   exercises the real decrypt path with generated test keys. **Load-bearing
+   finding: the two-key NCCH model** — see "New3DS 9.6 — SHIPPED + the two-key
+   NCCH model" below. The seeded-9.6 sub-variant (seed bit set, needs seeddb)
+   and 9.3 (`0x0A`/`0x18`, no anchor) are the same code path once a title
+   exists.
 
 ### Load-bearing empirical findings
 
@@ -346,7 +341,63 @@ ctrtool's `> Crypto Key` label maps 1:1 to `ncchflag[3]`: `Secure (0)` = `0x00`,
 
 **Consequence for the queue:** 9.3 is **opportunistic** — it falls out of the
 9.6 pure-Python AES-CTR path tooling-side (`0x18` keyX is parked), but it only
-becomes a real unit if a genuine `0x0A` anchor surfaces. The **lead next step
-is 9.6** (`0x0B`): it is fully actionable now via
-[`3DS-PURE-PYTHON-AES-CTR-PLAN.md`](3DS-PURE-PYTHON-AES-CTR-PLAN.md) with no
-new media (FE Warriors + the `0x1B` keyX are parked).
+becomes a real unit if a genuine `0x0A` anchor surfaces. The **9.6 unit
+shipped 2026-07-30** (`3ds-ncch-enc-96`, GREEN) via
+[`3DS-PURE-PYTHON-AES-CTR-PLAN.md`](3DS-PURE-PYTHON-AES-CTR-PLAN.md); see the
+two-key finding below.
+
+### New3DS 9.6 — SHIPPED + the two-key NCCH model (2026-07-30, session #256)
+
+`3ds-ncch-enc-96` (`substratum/formats/three_ds_ncch_enc_96.py`) is GREEN,
+anchored by FE Warriors (USA) `.3ds` (`ncchflag[3]==0x0B`, **no-seed** — seed
+bit clear, `seedcheck=0`). It bypasses vendored ctrtool v1.3.0 entirely and
+decrypts in pure Python: reads `slot0x2CKeyX` + `slot0x1BKeyX` from the operator
+keyset (`SUBSTRATUM_3DS_KEYSET_FILE`), derives the two normal keys via the
+hardware key generator (`normalkey_from_keyxy`, C1
+`1FF9E9AAC5FE0408024591DC5D52768A` + ROL-87), and CTR-decrypts the regions with
+a lazy/windowed source (the ~1.9 GB romfs is never materialized). The committed
+synthetic (`fixtures/3ds_ncch_enc_96/synthetic/`) exercises the real decrypt
+path with **generated test** keyX/keyY pairs — a stronger synthetic than the
+standard-crypto unit could ship (it could only author a decrypted image).
+
+**Load-bearing finding — the two-key NCCH decryption model.** The plan assumed
+each encrypted region decrypts with one key (the `0x1B` normalkey). That is
+**wrong**, and the protected-hash gate caught it before any commit. A
+New3DS-9.6 NCCH has **two** AES normal keys, both derived from the same keyY
+(signature[:16]) but different keyX slots (ground-truthed from `dnasdw/3dstool
+src/ncch.cpp` extract, lines 151-224; verified against FE Warriors retail bytes):
+
+- **Key0** (`slot0x2C`, the original content keyslot): encrypts the **extended
+  header**, the **ExeFS superblock** (0x200 header), and the **ExeFS bytes
+  after the first file**.
+- **Key1** (`slot0x1B` for 9.6 / `slot0x18` for 9.3): encrypts the **first
+  ExeFS file's content (`.code`)** and the **entire RomFS**.
+
+The ExeFS region is ONE continuous CTR stream whose key switches mid-stream:
+Key0 over `[0, 0x200)`, Key1 over `[0x200, 0x200+code_size)`, Key0 over the
+remainder. The counter never resets between sub-spans (the byte offset advances
+the keystream). This is why ctrtool `-v` prints both `NCCH AES Key0` and
+`NCCH AES Key1` for a 9.6 title. The normalizer builds a sorted
+`(offset, size, key_index, magic)` sub-span list and decrypts each with its key;
+ExeFS sub-spans share one region base so their counter block indices stay
+continuous.
+
+The diagnostic that pinpointed it: ctrtool `-v` on FE Warriors prints
+`NCCH AES Key0 86A8EA4B...` and `NCCH AES Key1 258E5D8F...`; the naive single-key
+derivation matched Key1 but the exheader validates with Key0. This two-key split
+also applies to standard/7.x crypto (same `Old`/`New` key indices), but the
+ctrtool-subprocess modules never modeled it — ctrtool does it internally. Only
+the pure-Python 9.6 path had to encode it.
+
+**No-seed 9.6 scope this unit:** FE Warriors is seed-free, so no seeddb is
+needed. The seeded-9.6 sub-variant (`ncchflag[7] & 0x20`, needs the seeddb to
+modify keyY) and 9.3 (`0x0A`/`0x18`, no anchor — lost media) are the same code
+path once a title exists; both stay deferred.
+
+**Keyset discipline (mirrors the Wii common-key boundary):**
+`SUBSTRATUM_3DS_KEYSET_FILE` names the operator's `aes_keys.txt`; the loader
+reads only `slot0x2CKeyX` + `slot0x1BKeyX` (or `0x18`), reports presence-only,
+and never hashes/logs/echoes a key byte. The committed test keyset
+(`fixtures/3ds_ncch_enc_96/synthetic/test_keyset.txt`) carries generated test
+values with no relationship to retail keys. No retail key bytes or decrypted
+retail payloads enter git.
