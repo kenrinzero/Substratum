@@ -115,9 +115,10 @@ and the two-key finding in
       FW 9.3+ and still ship 7.x (`0x01`) crypto. This unit only lands if a real
       `0x0A` surfaces.
 
-- [ ] **Promote the Spolia program:** downstream segments (Stratum, Quarry,
-      Kura, and Interlinear) consume only the frozen contract types and
-      manifests; promotion remains deferred until explicitly selected.
+- [x] **Promote the Spolia program (2026-08-05):** Stratum at
+      `C:\Users\kenrin\Project\Stratum` (`37c9f74`) and Quarry at
+      `C:\Users\kenrin\Project\Quarry` (`352e05a`) now consume the frozen
+      public contract; Kura and Interlinear remain downstream of Quarry.
 
 ## How to orient quickly
 
