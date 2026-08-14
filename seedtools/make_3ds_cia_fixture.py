@@ -20,6 +20,7 @@ Runtime is stdlib-only.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import struct
 import sys
 from pathlib import Path
@@ -171,8 +172,6 @@ def main() -> None:
     # every section slice read through the normalizer against them.
     reference = OUTPUT / "reference"
     if reference.exists():
-        import shutil
-
         shutil.rmtree(reference)
     reference.mkdir()
     for path, offset, size in section_entries:

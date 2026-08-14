@@ -35,6 +35,7 @@ from substratum.contract import (  # noqa: E402
     FileSource,
     FileTree,
     canonical_manifest,
+    sha256_of,
 )
 
 OUTPUT = ROOT / "fixtures" / "wii_fst" / "synthetic"
@@ -147,8 +148,6 @@ def main() -> None:
     tree = FileTree(
         source=FileSource(partition_path), format="wii-fst", entries=tuple(entries)
     )
-    from substratum.contract import sha256_of  # noqa: E402
-
     manifest = canonical_manifest(
         tree, partition_path.name, sha256_of(partition_path), {"generator": STAGER}
     )

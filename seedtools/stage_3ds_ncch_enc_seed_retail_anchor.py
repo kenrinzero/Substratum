@@ -22,6 +22,7 @@ normalizer composing the result through three_ds_ncch.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -196,8 +197,6 @@ def main() -> None:
             for name, digest in sorted(region_meta.items())
         ],
     }
-    import json
-
     text = json.dumps(manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     manifest_path = output / "expected.manifest.json"
     manifest_path.write_bytes((text + "\n").encode("ascii"))

@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from seedtools import vendor_tools  # noqa: E402
-from substratum.contract import FileSource  # noqa: E402
+from substratum.contract import FileSource, sha256_of  # noqa: E402
 from substratum.formats.wii_disc import normalize_wii_disc  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -171,8 +171,6 @@ def main() -> None:
         raise SystemExit(
             f"common key must be exactly 16 bytes (got {KEY_FILE.stat().st_size})"
         )
-    from substratum.contract import sha256_of  # noqa: E402
-
     iso_hash = sha256_of(iso)
     if iso_hash != EXPECTED_ISO_SHA256:
         raise SystemExit(

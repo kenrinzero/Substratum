@@ -27,6 +27,8 @@ from __future__ import annotations
 import os
 import secrets
 
+import pytest
+
 from substratum._aes import (
     _MASK128,
     _rol128,
@@ -94,8 +96,6 @@ def test_ctr_empty_input_returns_empty():
 
 
 def test_ctr_rejects_bad_key_and_counter():
-    import pytest
-
     with pytest.raises(ValueError):
         aes128_ctr_xor(b"short", _NIST_COUNTER0, _NIST_PLAINTEXT[:16])
     with pytest.raises(ValueError):
@@ -234,8 +234,6 @@ def test_normalkey_is_deterministic():
 
 
 def test_normalkey_rejects_wrong_lengths():
-    import pytest
-
     with pytest.raises(ValueError):
         normalkey_from_keyxy(b"short", b"0123456789abcdef")
     with pytest.raises(ValueError):

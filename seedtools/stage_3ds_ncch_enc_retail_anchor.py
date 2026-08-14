@@ -19,6 +19,7 @@ parsing as a whole is a separate later unit.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import struct
@@ -306,8 +307,6 @@ def main() -> None:
             for name, r in sorted(REGIONS.items())
         ],
     }
-    import json
-
     manifest_path = OUTPUT / "expected.manifest.json"
     text = json.dumps(manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     manifest_path.write_bytes((text + "\n").encode("ascii"))

@@ -37,11 +37,13 @@ import pytest
 
 from substratum import normalize
 from substratum.contract import ByteView, FileSource, FileTree
+from substratum.formats import three_ds_ncch_enc as enc_mod
 from substratum.formats.three_ds_ncch import normalize_3ds_ncch
 from substratum.formats.three_ds_ncch_enc import (
     normalize_3ds_ncch_enc,
     sniff,
 )
+from substratum.verify import _first_diff
 
 ROOT = Path(__file__).resolve().parent.parent
 SYNTHETIC = ROOT / "fixtures" / "3ds_ncch_enc" / "synthetic" / "decrypted.ncch"
@@ -212,27 +214,23 @@ def test_ctrtool_env_override_resolution(tmp_path, monkeypatch):
     The resolution order is tested structurally (the normalizer reaches the
     override before invoking ctrtool), mirroring the chd env-override tests.
     """
-    import substratum.formats.three_ds_ncch_enc as mod
-
     override = tmp_path / "custom-ctrtool.exe"
     override.write_bytes(b"stub")
     monkeypatch.setenv("SUBSTRATUM_CTRTOOL", str(override))
     monkeypatch.setattr(
-        mod.shutil, "which", lambda name: pytest.fail("PATH must not be consulted")
+        enc_mod.shutil, "which", lambda name: pytest.fail("PATH must not be consulted")
     )
-    assert mod._ctrtool_exe() == override
+    assert enc_mod._ctrtool_exe() == override
 
 
 def test_ctrtool_missing_raises_with_install_hint(tmp_path, monkeypatch):
-    import substratum.formats.three_ds_ncch_enc as mod
-
     monkeypatch.delenv("SUBSTRATUM_CTRTOOL", raising=False)
-    monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(enc_mod.shutil, "which", lambda name: None)
     monkeypatch.setattr(
-        mod, "_repo_ctrtool_candidate", lambda: tmp_path / "missing.exe"
+        enc_mod, "_repo_ctrtool_candidate", lambda: tmp_path / "missing.exe"
     )
     with pytest.raises(FileNotFoundError, match="vendor_tools.py ctrtool"):
-        mod._ctrtool_exe()
+        enc_mod._ctrtool_exe()
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +315,6 @@ def test_retail_decrypted_regions_match_two_party_reference():
     ctrtool/3dstool reference (both retail-keyed). A wrong decrypt diverges
     here AND fails the protected-hash check at the composed gate. Streamed
     chunk-wise so the 693 MB romfs never materializes whole (memory gate)."""
-    from substratum.verify import _first_diff
-
     ncch = CIA.parent / "_ncch_enc_probe.ncch"
     try:
         _slice_ncch(CIA, ncch)
@@ -418,8 +414,6 @@ def test_p7x_retail_decrypted_regions_match_ctrtool_reference():
     romfs never materializes whole (memory gate). The banner content — which
     3dstool strips but ctrtool preserves — matches here because both the
     normalizer's region and the reference are ctrtool's view."""
-    from substratum.verify import _first_diff
-
     ncch = P7X_CCI.parent / "_ncch_enc_p7x_probe.ncch"
     try:
         _slice_partition0(P7X_CCI, ncch)

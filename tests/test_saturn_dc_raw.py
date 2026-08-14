@@ -17,14 +17,16 @@ third-party-authored ISO and ECM/UNECM-verified real EDC/ECC sectors.
 """
 
 import json
+import struct
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from substratum.contract import ByteView, FileSource, FileTree, sha256_of
 from substratum.formats import saturn_dc_raw as raw_module
 from substratum.formats.iso9660 import normalize_iso9660
-from substratum.formats.saturn_dc_raw import normalize_saturn_dc_raw, sniff
+from substratum.formats.saturn_dc_raw import lba_base, normalize_saturn_dc_raw, sniff
 from substratum.verify import run_checks
 from tests.assertions import assert_structural_failure
 
@@ -488,7 +490,6 @@ def test_high_density_minute_with_invalid_low_nibble_refused(tmp_path):
     structural-red class is unchanged by the relaxation."""
     data = bytearray(BIN.read_bytes())
     _set_msf_sequence(data, 449_999)
-    data[0]  # no-op; keep sector 1's minute but corrupt its low nibble
     data[raw_module.SECTOR + raw_module.MSF_OFFSET] = 0xFA
     bad_bin = tmp_path / "bad.bin"
     bad_bin.write_bytes(data)
@@ -513,8 +514,6 @@ GD_BASE = 45_000
 SA2_DIR = ROOT / "fixtures" / "_local" / "Sonic Adventure 2 (Dreamcast)"
 SA2_TRACK = SA2_DIR / "track03.bin"
 
-import pytest  # noqa: E402
-
 skip_if_no_sa2 = pytest.mark.skipif(
     not SA2_TRACK.is_file(),
     reason="staged Sonic Adventure 2 GDI set absent",
@@ -531,8 +530,6 @@ def _shift_iso_extents_gd(data: bytearray, k: int) -> None:
     mirroring the record grammar; it is a mutator, not an oracle — the test
     oracle is full FileTree-entry equality against the unshifted walk.
     """
-    import struct as _struct
-
     user = 16  # user data starts at byte 16 of each 2352 sector
 
     def read_user(lba: int, n: int) -> bytes:
@@ -543,11 +540,11 @@ def _shift_iso_extents_gd(data: bytearray, k: int) -> None:
         value — the record's PHYSICAL location, which the walker below must
         keep visiting while only the metadata moves."""
         base = record_offset
-        le, = _struct.unpack("<I", bytes(data[base + 2 : base + 6]))
-        be, = _struct.unpack(">I", bytes(data[base + 6 : base + 10]))
+        le, = struct.unpack("<I", bytes(data[base + 2 : base + 6]))
+        be, = struct.unpack(">I", bytes(data[base + 6 : base + 10]))
         assert le == be
-        _struct.pack_into("<I", data, base + 2, le + k)
-        _struct.pack_into(">I", data, base + 6, le + k)
+        struct.pack_into("<I", data, base + 2, le + k)
+        struct.pack_into(">I", data, base + 6, le + k)
         return le
 
     def walk_dir(phys_extent: int, length: int) -> None:
@@ -560,7 +557,7 @@ def _shift_iso_extents_gd(data: bytearray, k: int) -> None:
             abs_rec = phys_extent * raw_module.SECTOR + user + pos
             phys_child = bump(abs_rec)  # every record's extent goes absolute
             flags = data[abs_rec + 25]
-            size, = _struct.unpack("<I", bytes(data[abs_rec + 10 : abs_rec + 14]))
+            size, = struct.unpack("<I", bytes(data[abs_rec + 10 : abs_rec + 14]))
             name_len = data[abs_rec + 32]
             is_self_parent = (
                 name_len == 1
@@ -572,14 +569,12 @@ def _shift_iso_extents_gd(data: bytearray, k: int) -> None:
 
     pvd_record = 16 * raw_module.SECTOR + user + 156
     phys_root = bump(pvd_record)
-    root_size, = _struct.unpack("<I", bytes(data[pvd_record + 10 : pvd_record + 14]))
+    root_size, = struct.unpack("<I", bytes(data[pvd_record + 10 : pvd_record + 14]))
     walk_dir(phys_root, root_size)
 
 
 def test_lba_base_derivations(tmp_path):
     """Saturn tracks start at 00:02:00 -> base 0; a GD-origin track -> 45,000."""
-    from substratum.formats.saturn_dc_raw import lba_base
-
     assert lba_base(BIN) == 0
     assert lba_base(HOMEBREW_BIN) == 0
     data = bytearray(BIN.read_bytes())
@@ -592,9 +587,6 @@ def test_lba_base_derivations(tmp_path):
 def test_gd_composition_translates_absolute_extents(tmp_path):
     """A GD-style master (absolute extents + 10:02:00 origin) walks, via
     lba_base, to the exact same FileTree as the track-relative original."""
-    from substratum.formats.iso9660 import normalize_iso9660
-    from substratum.formats.saturn_dc_raw import lba_base
-
     plain_tree = _normalize_saturn_to_tree(BIN)
 
     data = bytearray(BIN.read_bytes())
@@ -611,9 +603,6 @@ def test_gd_composition_translates_absolute_extents(tmp_path):
 def test_extent_below_lba_base_is_structural_red():
     """An unshifted image read with a GD base refuses loudly (no silent
     misreads): the root extent sits below the declared base."""
-    from substratum.formats.iso9660 import normalize_iso9660
-    from substratum.formats.saturn_dc_raw import lba_base
-
     view = normalize_saturn_dc_raw(BIN)
     assert lba_base(BIN) == 0  # the fixture really is track-relative
     with pytest.raises(ValueError, match="below the LBA base"):
@@ -623,9 +612,6 @@ def test_extent_below_lba_base_is_structural_red():
 @skip_if_no_sa2
 def test_sa2_gd_composition_is_green():
     """The staged retail dump: remap -> lba_base composition -> full tree."""
-    from substratum.formats.iso9660 import normalize_iso9660
-    from substratum.formats.saturn_dc_raw import lba_base
-
     view = normalize_saturn_dc_raw(SA2_TRACK)
     base = lba_base(SA2_TRACK)
     assert base == GD_BASE
@@ -633,9 +619,9 @@ def test_sa2_gd_composition_is_green():
     files = [e for e in tree.entries if e.kind == "file"]
     names = {e.path for e in files}
     assert "1ST_READ.BIN" in names
+    assert len(files) == 2_572
     adx = [p for p in names if p.upper().endswith(".ADX")]
-    assert len(adx) > 100, (
-        f"expected SA2's loose ADX bank (137 on this dump; the disc's huge "
-        f"raw (c)CRI count mostly lives inside Sofdec .SFD video audio), "
-        f"got {len(adx)}"
+    assert len(adx) == 137, (
+        f"expected SA2's 137 loose ADX (the disc's huge raw (c)CRI count "
+        f"mostly lives inside Sofdec .SFD video audio), got {len(adx)}"
     )

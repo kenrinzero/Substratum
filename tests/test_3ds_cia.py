@@ -22,6 +22,8 @@ Two pillars (NORMALIZERS.md row ``cia``):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import struct
 from pathlib import Path
 
@@ -30,7 +32,7 @@ import pytest
 from substratum import normalize
 from substratum.contract import FileEntry, FileSource, FileTree, sha256_of
 from substratum.formats.three_ds_cia import normalize_3ds_cia, sniff
-from substratum.verify import run_checks
+from substratum.verify import _first_diff, run_checks
 
 ROOT = Path(__file__).resolve().parent.parent
 SYNTHETIC_FIXTURE = ROOT / "fixtures" / "3ds_cia" / "synthetic"
@@ -83,8 +85,6 @@ def _build_synthetic_cia(
         rec = bytearray(0x30)
         struct.pack_into(">H", rec, 0x04, index)
         struct.pack_into(">Q", rec, 0x08, len(data))
-        import hashlib
-
         rec[0x10:0x30] = hashlib.sha256(data).digest()
         tmd += rec
 
@@ -250,8 +250,6 @@ def test_duplicate_content_index_is_structural_red(tmp_path):
 
 @skip_if_no_retail_anchor
 def test_retail_manifest_records_pinned_oracle():
-    import json
-
     doc = json.loads((RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii"))
     assert doc["identity"]["title_id"] == "0004000000043e00"
     assert doc["tool_versions"]["ctrtool"] == "CTRTool v1.3.0 (C) jakcron"
@@ -268,8 +266,6 @@ def test_retail_content_blob_matches_two_party_reference():
     ref = RETAIL_REFERENCE / "content.0000.ncch"
     assert ref.is_file() and ref.stat().st_size == content.size
     # streamed compare (memory-gate compliant)
-    from substratum.verify import _first_diff
-
     first = _first_diff(tree.open(content), ref, content.size, content.size)
     assert first is None, f"content blob differs from reference at byte {first}"
 
@@ -285,8 +281,6 @@ def test_wrong_slice_mutant_dies_at_manifest_or_fidelity():
             content.path, content.kind, content.offset + 1, content.size
         )
         return FileTree(tree.source, tree.format, tuple(entries))
-
-    import json
 
     doc = json.loads((RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii"))
     problems = run_checks(

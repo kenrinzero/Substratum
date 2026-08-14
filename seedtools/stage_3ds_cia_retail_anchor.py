@@ -13,6 +13,7 @@ references stay gitignored; only the canonical manifest and provenance commit.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import struct
@@ -235,8 +236,6 @@ def main() -> None:
             }
         ],
     }
-    import json
-
     text = json.dumps(manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     (OUTPUT / "expected.manifest.json").write_bytes((text + "\n").encode("ascii"))
     print(f"manifest -> {OUTPUT / 'expected.manifest.json'}")

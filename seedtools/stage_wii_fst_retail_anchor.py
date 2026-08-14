@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,7 @@ from substratum.contract import (  # noqa: E402
     canonical_manifest,
     sha256_of,
 )
+from substratum.formats.wii_disc import normalize_wii_disc  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ISO = ROOT / "fixtures" / "_local" / "The Munchables (USA).iso"
@@ -209,9 +211,6 @@ def main() -> None:
     # header field at partition_offset+0x2BC, word-shifted), NOT from the
     # normalizer under test. The source NAME/sha256 stay the ISO (the
     # composition root the operator supplies).
-    import struct  # noqa: E402
-    from substratum.formats.wii_disc import normalize_wii_disc  # noqa: E402
-
     disc_tree = normalize_wii_disc(FileSource(iso))
     data_entry = next(
         e for e in disc_tree.entries if e.path == "partition-data.bin"

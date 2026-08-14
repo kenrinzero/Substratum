@@ -32,7 +32,9 @@ from substratum.contract import (
     ByteView,
     FileEntry,
     FileSource,
+    FileTree,
     SliceSource,
+    canonical_manifest,
     sha256_of,
 )
 from substratum.formats.wii_disc import normalize_wii_disc
@@ -137,8 +139,6 @@ def test_synthetic_fidelity_known_payloads():
 
 def test_synthetic_byte_stability():
     """Check 3: two runs produce byte-identical manifests."""
-    from substratum.contract import canonical_manifest
-
     a = canonical_manifest(
         normalize_wii_fst(SYNTHETIC_BIN),
         SYNTHETIC_BIN.name,
@@ -239,8 +239,6 @@ def test_retail_manifest_matches_wit_listing(retail_key_env):
     listing, and two runs are byte-stable. Fidelity (check 4) is proven in the
     dedicated bounded test below — run_checks reads full files for check 4,
     which is impractical under pure-Python AES for the Munchables' large files."""
-    from substratum.contract import canonical_manifest
-
     tree = _retail_tree()
     manifest = canonical_manifest(tree, ISO.name, ISO_SHA256, TOOLS_RETAIL)
     expected = RETAIL_MANIFEST.read_bytes()
@@ -304,8 +302,6 @@ def test_retail_wrong_offset_mutant_dies_at_fidelity(retail_key_env):
     normalizer that returns correct paths/sizes but wrong offsets must die at
     fidelity, not pass checks 1-3. Verified on a bounded slice (pure-Python AES
     makes full reads impractical)."""
-    from substratum.contract import FileTree
-
     tree = _retail_tree()
     shifted = tuple(
         FileEntry(e.path, e.kind, e.offset + 1, max(e.size - 1, 0))

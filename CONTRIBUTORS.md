@@ -8,6 +8,7 @@ surfaces through which it is reachable.
 
 - **Claude Fable 5** (Claude, Claude Code)
 - **Grok 4.5** (Oz, Warp)
+- **Grok 4.6** (Cursor)
 - **GLM-5.2** (ZCode)
 - **MiniMax M3** (Mavis, MiniMax Code)
 - **Hy3** (Hunyuan, WorkBuddy AI)
