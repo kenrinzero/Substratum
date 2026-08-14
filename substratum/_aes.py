@@ -38,6 +38,8 @@ __all__ = [
     "aes128_cbc_decrypt",
     "aes128_cbc_encrypt",
     "aes128_ctr_xor",
+    "cbc_decrypt_blocks",
+    "expand_key",
     "normalkey_from_keyxy",
 ]
 
@@ -243,19 +245,31 @@ def _decrypt_block(block: bytes, round_keys: list[list[int]]) -> bytes:
     return bytes(state)
 
 
-def aes128_cbc_decrypt(key: bytes, iv: bytes, ciphertext: bytes) -> bytes:
-    """SP 800-38A §6.2: AES-128-CBC decryption.
+def expand_key(key: bytes) -> list[list[int]]:
+    """FIPS-197 §5.2: AES-128 key expansion → 11 round keys (column-wise).
 
-    ``ciphertext`` length must be a positive multiple of the 16-byte block
-    size; the IV is 16 bytes. Returns the decrypted plaintext (same length).
+    Public so long-lived decryptors (e.g. the Wii partition source) expand a
+    key once and reuse the schedule across many calls; ``cbc_decrypt_blocks``
+    consumes the result.
     """
-    if len(key) != 16:
-        raise ValueError("AES-128 requires a 16-byte key")
+    return _expand_key(key)
+
+
+def cbc_decrypt_blocks(
+    round_keys: list[list[int]], iv: bytes, ciphertext: bytes
+) -> bytes:
+    """SP 800-38A §6.2 CBC decryption over precomputed ``round_keys``.
+
+    Same contract as :func:`aes128_cbc_decrypt` minus the key: the schedule is
+    caller-supplied, which lets a hot path expand once. CBC decryption chains
+    through *ciphertext*, so this is also the random-access primitive —
+    decrypting a ciphertext suffix with ``iv`` = the preceding ciphertext
+    block yields the matching plaintext suffix.
+    """
     if len(iv) != _BLOCK:
         raise ValueError("CBC IV must be 16 bytes")
     if len(ciphertext) == 0 or len(ciphertext) % _BLOCK != 0:
         raise ValueError("ciphertext length must be a positive multiple of 16")
-    round_keys = _expand_key(key)
     out = bytearray(len(ciphertext))
     prev = iv
     for i in range(0, len(ciphertext), _BLOCK):
@@ -264,6 +278,17 @@ def aes128_cbc_decrypt(key: bytes, iv: bytes, ciphertext: bytes) -> bytes:
             out[i + j] = dec[j] ^ prev[j]
         prev = ciphertext[i : i + _BLOCK]
     return bytes(out)
+
+
+def aes128_cbc_decrypt(key: bytes, iv: bytes, ciphertext: bytes) -> bytes:
+    """SP 800-38A §6.2: AES-128-CBC decryption.
+
+    ``ciphertext`` length must be a positive multiple of the 16-byte block
+    size; the IV is 16 bytes. Returns the decrypted plaintext (same length).
+    """
+    if len(key) != 16:
+        raise ValueError("AES-128 requires a 16-byte key")
+    return cbc_decrypt_blocks(_expand_key(key), iv, ciphertext)
 
 
 def aes128_cbc_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> bytes:

@@ -353,3 +353,120 @@ def test_retail_decrypted_output_matches_wit_at_sampled_offsets(retail_key_env):
             f"fidelity: {sample['path']} differs from wit reference "
             f"at decrypted offset {offset:#x} (lengths {len(got)} vs {len(theirs)})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Read-performance contract (BACKLOG "Wii partition read performance", 2026-08-14)
+#
+# Root cause of the 133 s / 2007-file census: every read_at decrypted a whole
+# 0x7C00 cluster (1,984 AES blocks ≈ 70 ms) and re-expanded the key schedule.
+# The fix: CBC *decryption* is random-access (block i needs ciphertext blocks
+# i-1 and i only), so a read decrypts exactly its covered blocks, and the key
+# schedule is computed once per source. Plus an explicit decrypt-once spool.
+# ---------------------------------------------------------------------------
+
+import random  # noqa: E402
+
+from substratum._aes import (  # noqa: E402
+    aes128_cbc_encrypt,
+    cbc_decrypt_blocks,
+    expand_key,
+)
+from substratum.formats.wii_partition import materialize  # noqa: E402
+
+
+def test_cbc_decrypt_random_access_property():
+    """The load-bearing crypto property the fix relies on: decrypting a
+    ciphertext suffix with iv = the preceding ciphertext block equals the
+    corresponding plaintext suffix (CBC decrypt chains through ciphertext,
+    which is always readable). Anchored independently of any fixture."""
+    rng = random.Random(0x5EE0)
+    key = bytes(rng.randrange(256) for _ in range(16))
+    iv = bytes(rng.randrange(256) for _ in range(16))
+    pt = bytes(rng.randrange(256) for _ in range(16 * 37))
+    ct = aes128_cbc_encrypt(key, iv, pt)
+    round_keys = expand_key(key)
+    assert cbc_decrypt_blocks(round_keys, iv, ct) == pt  # full, NIST-shaped
+    for first in (1, 2, 5, 36):
+        prefix_iv = ct[(first - 1) * 16 : first * 16]
+        assert (
+            cbc_decrypt_blocks(round_keys, prefix_iv, ct[first * 16 :])
+            == pt[first * 16 :]
+        )
+
+
+def test_small_read_pulls_only_its_blocks_from_the_parent(synth_key_env):
+    """Perf contract: a small read must not read (let alone decrypt) a whole
+    0x7C00 cluster from the parent — the pre-fix behavior cost ~70 ms per
+    header read and 133 s over MKWii's 2007 files."""
+
+    class _CountingSource:
+        def __init__(self, inner):
+            self._inner = inner
+            self.bytes_read = 0
+
+        def read_at(self, offset, size):
+            self.bytes_read += size
+            return self._inner.read_at(offset, size)
+
+        def size(self):
+            return self._inner.size()
+
+    counting = _CountingSource(FileSource(PARTITION_BIN))
+    view = normalize_wii_partition(counting)
+    before = counting.bytes_read
+    got = view.source.read_at(0x1234, 16)
+    assert got == _expected_synthetic_payload(0)[0x1234 : 0x1234 + 16]
+    pulled = counting.bytes_read - before
+    assert pulled <= 0x100, f"16-byte read pulled {pulled} bytes from the parent"
+
+
+def test_misaligned_and_boundary_reads_match_plaintext(synth_key_env):
+    """Block-granular decryption must be byte-identical to whole-cluster
+    decryption at awkward offsets, cluster tails, and boundary straddles."""
+    view = normalize_wii_partition(PARTITION_BIN)
+    stream = b"".join(
+        _expected_synthetic_payload(i) for i in range(CLUSTER_COUNT)
+    )
+    cases = [
+        (7, 13),
+        (0x20, 5),
+        (16, 32),
+        (_CLUSTER_PAYLOAD_SIZE - 5, 5),
+        (_CLUSTER_PAYLOAD_SIZE - 8, 16),
+        (2 * _CLUSTER_PAYLOAD_SIZE + 1, 3),
+        (_CLUSTER_PAYLOAD_SIZE + 0x40, 100),
+        (0, 1),
+    ]
+    for offset, size in cases:
+        got = view.source.read_at(offset, size)
+        assert got == stream[offset : offset + size], f"read {offset:#x}+{size}"
+
+
+def test_materialize_serves_identical_bytes(synth_key_env):
+    """The decrypt-once spool: every sampled read through the materialized
+    file equals the lazy decrypted view."""
+    lazy = normalize_wii_partition(PARTITION_BIN)
+    with materialize(PARTITION_BIN) as mat:
+        assert mat.view.source.size() == lazy.source.size()
+        size = mat.view.source.size()
+        for offset, length in (
+            (0, 64),
+            (0x1234, 100),
+            (_CLUSTER_PAYLOAD_SIZE * 3 - 7, 42),
+            (size - 16, 16),
+        ):
+            assert mat.view.source.read_at(offset, length) == (
+                lazy.source.read_at(offset, length)
+            ), f"materialized read {offset:#x}+{length} differs"
+
+
+def test_materialize_close_is_idempotent_and_removes_temp(synth_key_env):
+    mat = materialize(PARTITION_BIN)
+    path = mat.path
+    assert path.is_file()
+    mat.close()
+    assert not path.exists()
+    mat.close()  # idempotent
+    with pytest.raises((ValueError, OSError)):
+        mat.view.source.read_at(0, 1)  # closed spool fails closed

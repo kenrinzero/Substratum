@@ -34,12 +34,18 @@ from __future__ import annotations
 
 import os
 import struct
+import tempfile
+import weakref
 from pathlib import Path
 
-from substratum._aes import aes128_cbc_decrypt
+from substratum._aes import (
+    aes128_cbc_decrypt,
+    cbc_decrypt_blocks,
+    expand_key,
+)
 from substratum.contract import ByteSource, ByteView, FileSource, SliceSource
 
-__all__ = ["sniff", "normalize_wii_partition"]
+__all__ = ["sniff", "normalize_wii_partition", "materialize"]
 
 # ---- partition layout (mirrors wii_disc; duplicated intentionally so this   --
 # -- unit is independently dispatchable on a raw partition slice, not coupled --
@@ -179,22 +185,20 @@ class _DecryptedPartitionSource:
     """A lazy ``ByteSource`` over the decrypted cluster payloads.
 
     The decrypted view has size ``cluster_count * _CLUSTER_PAYLOAD_SIZE``.
-    Reads are served cluster-by-cluster: the relevant clusters' hash headers
-    and ciphertext payloads are read from the parent source, decrypted with
-    the title key + per-cluster IV, and the requested byte range is sliced
-    out. A small bounded LRU cache of recently-decrypted payloads keeps
-    sequential scans cheap without materializing the whole partition.
+    Reads decrypt **only the AES blocks they cover**: CBC decryption chains
+    through ciphertext (which is always readable), so the blocks a read needs
+    are exactly its own plus the one preceding block as the XOR IV — the
+    cluster header IV at 0x3D0 seeds only block 0 of each cluster. The title
+    key never changes, so the key schedule is expanded once per source.
+    This is what took a 1-read-per-file census over Mario Kart Wii's 2007
+    files from ~133 s (whole-cluster decrypt per read) to single-digit
+    seconds (BACKLOG "Wii partition read performance", 2026-08-14).
     """
 
     def __init__(self, parent: ByteSource, data_offset: int, title_key: bytes) -> None:
         self._parent = parent
         self._data_offset = data_offset
-        self._title_key = title_key
-        # Bounded payload cache: at most a few clusters, so peak RSS stays in
-        # the low MB regardless of partition size (memory-discipline gate).
-        self._cache: dict[int, bytes] = {}
-        self._cache_order: list[int] = []
-        self._cache_cap = 4
+        self._round_keys = expand_key(title_key)  # one schedule per partition
         parent_size = parent.size()
         region_end = data_offset + (
             (parent_size - data_offset) // _CLUSTER_SIZE * _CLUSTER_SIZE
@@ -202,24 +206,32 @@ class _DecryptedPartitionSource:
         self._cluster_count = (region_end - data_offset) // _CLUSTER_SIZE
         self._size = self._cluster_count * _CLUSTER_PAYLOAD_SIZE
 
-    def _decrypt_cluster(self, index: int) -> bytes:
-        cached = self._cache.get(index)
-        if cached is not None:
-            return cached
+    def _read_span(self, index: int, start: int, length: int) -> bytes:
+        """Decrypt ``payload[start : start + length]`` of cluster ``index``."""
+        first = start // _AES_BLOCK
+        last = (start + length + _AES_BLOCK - 1) // _AES_BLOCK
         cluster_off = self._data_offset + index * _CLUSTER_SIZE
-        # Hash header (0x400) holds the IV; payload (0x7C00) is the ciphertext.
-        header = self._parent.read_at(cluster_off, _CLUSTER_HASH_SIZE)
-        iv = header[_CLUSTER_IV_OFFSET : _CLUSTER_IV_OFFSET + _CLUSTER_IV_SIZE]
-        ciphertext = self._parent.read_at(
-            cluster_off + _CLUSTER_HASH_SIZE, _CLUSTER_PAYLOAD_SIZE
-        )
-        plaintext = aes128_cbc_decrypt(self._title_key, iv, ciphertext)
-        self._cache[index] = plaintext
-        self._cache_order.append(index)
-        if len(self._cache_order) > self._cache_cap:
-            evict = self._cache_order.pop(0)
-            self._cache.pop(evict, None)
-        return plaintext
+        if first == 0:
+            # Block 0 chains from the cluster's own IV (hash header 0x3D0).
+            # The IV and the ciphertext (header end 0x400) sit in one
+            # contiguous parent range with 0x30 bytes of header between.
+            raw = self._parent.read_at(
+                cluster_off + _CLUSTER_IV_OFFSET,
+                _CLUSTER_HASH_SIZE - _CLUSTER_IV_OFFSET + last * _AES_BLOCK,
+            )
+            iv = raw[:_CLUSTER_IV_SIZE]
+            ciphertext = raw[_CLUSTER_HASH_SIZE - _CLUSTER_IV_OFFSET :]
+        else:
+            # Later blocks chain from the preceding ciphertext block.
+            ciphertext = self._parent.read_at(
+                cluster_off + _CLUSTER_HASH_SIZE + (first - 1) * _AES_BLOCK,
+                (last - first + 1) * _AES_BLOCK,
+            )
+            iv = ciphertext[:_AES_BLOCK]
+            ciphertext = ciphertext[_AES_BLOCK:]
+        plaintext = cbc_decrypt_blocks(self._round_keys, iv, ciphertext)
+        skip = start - first * _AES_BLOCK
+        return plaintext[skip : skip + length]
 
     def read_at(self, offset: int, size: int) -> bytes:
         if offset < 0 or size < 0 or offset + size > self._size:
@@ -234,8 +246,7 @@ class _DecryptedPartitionSource:
             cluster_index = pos // _CLUSTER_PAYLOAD_SIZE
             in_cluster = pos % _CLUSTER_PAYLOAD_SIZE
             take = min(_CLUSTER_PAYLOAD_SIZE - in_cluster, end - pos)
-            payload = self._decrypt_cluster(cluster_index)
-            out += payload[in_cluster : in_cluster + take]
+            out += self._read_span(cluster_index, in_cluster, take)
             pos += take
         return bytes(out)
 
@@ -243,8 +254,10 @@ class _DecryptedPartitionSource:
         return self._size
 
     def close(self) -> None:
-        self._cache.clear()
-        self._cache_order.clear()
+        # Nothing is cached anymore — reads decrypt exactly their own blocks,
+        # so there is no state to release. Kept for API compatibility with
+        # the previously cached implementation.
+        return None
 
 
 def normalize_wii_partition(source) -> ByteView:
@@ -271,3 +284,79 @@ def normalize_wii_partition(source) -> ByteView:
 def from_wii_disc_entry(tree, entry) -> ByteView:
     """Decrypt one ``wii-disc`` partition entry into a ``ByteView``."""
     return normalize_wii_partition(SliceSource(tree.source, entry.offset, entry.size))
+
+
+class MaterializedPartition:
+    """A decrypt-once spool: the whole partition decrypted to a local temp
+    file, served as plain reads (BACKLOG "Wii partition read performance").
+
+    Bulk consumers that read most of a multi-GB partition (operator-run
+    sweeps, whole-partition fidelity checks) pay the AES cost exactly once
+    here instead of through lazy per-read decryption, at the cost of ~4 GB
+    of temp disk. ``view`` is a plain-file ``ByteView`` over the spool;
+    ``close()`` deletes it (idempotent, plus a ``weakref.finalize``
+    fallback); use as a context manager when possible.
+    """
+
+    def __init__(self, path: Path, view: ByteView) -> None:
+        self.path = path
+        self.view = view
+        self._closed = False
+        self._finalizer = weakref.finalize(self, self._remove, path)
+
+    @staticmethod
+    def _remove(path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._finalizer()
+        source = self.view.source
+        closer = getattr(source, "close", None)
+        if callable(closer):
+            closer()
+
+    def __enter__(self) -> "MaterializedPartition":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+def materialize(source) -> MaterializedPartition:
+    """Decrypt a Wii partition once into a temp-file-backed ``ByteView``.
+
+    Accepts the same input as :func:`normalize_wii_partition` (a path or
+    ``ByteSource`` over a raw partition). Returns a
+    :class:`MaterializedPartition`; its ``view`` serves plain reads with no
+    further decryption. Key discipline is unchanged: the title key exists
+    only in memory during the spool and is never logged or persisted.
+    """
+    src = source if isinstance(source, ByteSource) else FileSource(source)
+    common_key = _load_common_key()
+    data_offset, data_size = _parse_partition_data_region(src)
+    title_key = _derive_title_key(src, common_key)
+    round_keys = expand_key(title_key)
+    cluster_count = data_size // _CLUSTER_SIZE
+
+    fd, spool_name = tempfile.mkstemp(prefix="substratum-wii-partition-")
+    spool_path = Path(spool_name)
+    try:
+        with os.fdopen(fd, "wb") as spool:
+            for index in range(cluster_count):
+                cluster_off = data_offset + index * _CLUSTER_SIZE
+                header = src.read_at(cluster_off, _CLUSTER_HASH_SIZE)
+                iv = header[_CLUSTER_IV_OFFSET : _CLUSTER_IV_OFFSET + _CLUSTER_IV_SIZE]
+                ciphertext = src.read_at(
+                    cluster_off + _CLUSTER_HASH_SIZE, _CLUSTER_PAYLOAD_SIZE
+                )
+                spool.write(cbc_decrypt_blocks(round_keys, iv, ciphertext))
+    except BaseException:
+        spool_path.unlink(missing_ok=True)
+        raise
+    return MaterializedPartition(spool_path, ByteView(FileSource(spool_path), "wii-partition"))

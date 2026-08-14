@@ -105,25 +105,32 @@ and the two-key finding in
 
 ## Next (in dispatch order)
 
-- [ ] **Wii partition read performance — decrypt-once / caching source
-      (consumer request from Stratum, 2026-08-14):** the decrypted
-      Wii-partition `ByteView` re-decrypts on every `read_at`, and pure-Python
-      AES runs ~0.5 MiB/s, so a census that reads one header per file over
-      Mario Kart Wii's data partition (2007 files) took **133 s** (~15
-      reads/s), and any detector that walks structure with multi-read access
-      (e.g. a Yaz0 chunk walk) would take hours. Wii prevalence in Stratum's
-      census is therefore infeasible through the current source. Needed,
-      behind the unchanged public `ByteSource` contract:
-      (a) a cluster-level LRU cache over decrypted 0x7C00-byte data regions
-      (plus memoized per-cluster key/IV setup) so repeated reads in a cluster
-      are free; and (b) an explicit **decrypt-once materialization path** for
-      operator-run sweeps — spool the whole decrypted partition to a local
-      temp file and serve plain reads from it — since first-touch decrypt of a
-      multi-GB partition at 0.5 MiB/s stays expensive no matter the caching.
-      The stdlib-only decision stands (no crypto dependency); benchmark gate:
-      the 2007-file MKWii census drops from 133 s to single-digit seconds
-      warm, and a structural walk over a staged `.szs` completes in
-      interactive time. Context: Stratum BACKLOG, Unit 3 "Separate track
+- [x] **Wii partition read performance — decrypt-once / caching source
+      (consumer request from Stratum, 2026-08-14; DONE same day):** the
+      decrypted Wii-partition `ByteView` re-decrypts on every `read_at`, and
+      pure-Python AES runs ~0.5 MiB/s, so a census that reads one header per
+      file over Mario Kart Wii's data partition (2007 files) took **133 s**
+      (re-measured 139.4 s), and any detector that walks structure with
+      multi-read access (e.g. a Yaz0 chunk walk) would take hours. **Root
+      cause found during the fix: every `read_at` decrypted a whole 0x7C00
+      cluster (1,984 AES blocks ≈ 70 ms) even for a 4-byte header read.**
+      Fix (key-schedule memoization + block-granular CBC): CBC *decryption*
+      chains through ciphertext, so a read decrypts exactly its own 16-byte
+      blocks (the preceding ciphertext block serves as the XOR IV; the
+      cluster-header IV seeds only block 0), and the AES key schedule is
+      expanded once per source (`_aes.expand_key` +
+      `cbc_decrypt_blocks` are the new public primitives, NIST-anchored).
+      Plus the explicit **`materialize()` decrypt-once spool** (temp-file
+      `ByteView`, context-managed, idempotent close, `weakref.finalize`
+      fallback) for bulk consumers. The old 4-cluster LRU was removed —
+      block-granular reads make it strictly dominated (a repeated read
+      costs only its own blocks). **Benchmark: the 2007-file MKWii census
+      dropped 139.4 s → 0.61 s (228×)**; scattered small reads now read
+      ≤ their own blocks from the parent (test-enforced). Sequential bulk
+      throughput is data-bound and unchanged (~0.5 MiB/s: a 3.4 MB
+      `.szs` reads in ~7 s; the one-time `materialize()` spool of a 4.4 GB
+      partition costs the same ~2.4 h single-threaded and serves plain
+      reads after). Context: Stratum BACKLOG, Unit 3 "Separate track
       (Substratum, not Stratum)".
 
 - [ ] **iso9660 both-endian extent-location mismatch (RE4 PAL, consumer
