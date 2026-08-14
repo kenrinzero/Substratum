@@ -140,6 +140,48 @@ and the two-key finding in
       restricted to what the differential oracle accepts), never a blanket
       skip of the dual-endian check.
 
+- [ ] **saturn-dc-raw rejects the Dreamcast GD-ROM high-density area (consumer
+      request from Stratum, 2026-08-14):** the staged Sonic Adventure 2 GDI
+      set's data track (`track03.bin`, 504,200 × 2352-byte sectors, data
+      track at LBA 45000 per the `.gdi`) fails
+      `normalize(format="saturn-dc-raw")` at **sector 404850** with
+      "invalid BCD minute 0xa0" — the high-density region carries
+      addresses that do not fit the low-density BCD/MSF grammar the eager
+      per-sector validation assumes (the long-known DC GD-ROM
+      45000-sector LBA-base gap; Quarry's BACKLOG names this exact
+      composition path for its spare-ADX enumeration and is equally
+      blocked). The unit: reproduce from the staged `track03.bin`,
+      characterize the actual address bytes across the 45000-boundary and
+      the failure band (which sectors are non-BCD, whether addresses
+      derive from absolute LBA without rollover, whether a second address
+      base appears), then decide the tolerant rule inside the existing
+      design — e.g. compute the expected MSF from the declared LBA base
+      and compare structurally, or relax the BCD check only where
+      sync + mode + the pinned-ECM error-code oracle still validate the
+      sector — never a blanket skip of address validation. Unblocks:
+      Stratum's `cri.adx` second positive (SA2 carries 11,240 raw
+      `(c)CRI`, expected loose ADX) and Dreamcast-side census negatives.
+      Note: 4x4 Evo's data track being Mode 2 is scope-by-design (raw
+      Mode-1 only), not part of this ask.
+
+- [ ] **`F:\game` corpus formats — RVZ / WBFS (+ GCZ / NKit as follow-ons;
+      Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's
+      eventual operator-run corpus sweep (its BACKLOG Unit 4) targets
+      `F:\game`, which is **decrypted emulator-optimized formats — not raw
+      disc images** (RVZ/WBFS for Wii, GCZ/NKit for GC/Wii). None of these
+      normalize today, so a sweep over the real corpus would skip most of
+      it. Each format is its own normalizer unit with its own differential
+      oracle (RVZ is Dolphin's own container → the Dolphin CLI; WBFS and
+      GCZ → wit where applicable; NKit → the NKit tool), following the
+      retail-anchor pattern: small operator-supplied samples staged into
+      the gitignored drop zone, provenance + manifest committed, agents
+      never reading `F:\game` autonomously. Decide and record up front
+      (a) whether to normalize each container directly or define an
+      operator pre-conversion path, and (b) the minimum set that makes the
+      first 50-title sweep meaningful — RVZ + NKit likely cover the bulk.
+      This family is **not dispatchable until the operator stages
+      samples**; it is recorded here so the dependency is durable.
+
 - [ ] **New3DS 9.3 variant (opportunistic — media-scarce):** `ncchflag[3] ==
       0x0A`, keyslot `0x18`, no seeddb. Tooling-wise this falls out of the 9.6
       pure-Python path for free (`0x18` keyX is in the parked keyset, same
