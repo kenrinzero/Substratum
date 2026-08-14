@@ -44,6 +44,46 @@ def _both_endian_32(raw: bytes, what: str) -> int:
     return le
 
 
+def _record_extent_and_size(
+    rec: bytes, fi: bytes, block: int, source_size: int, lba_base: int
+) -> tuple[int, int]:
+    """Resolve one directory record's both-endian extent/size pair.
+
+    Tolerates *single-sided* mastering corruption (BACKLOG RE4 PAL, 2026):
+    the staged 2021 re-master carries exactly one record whose little-endian
+    fields are garbage (extent = the volume space itself) while the
+    big-endian pair is structurally possible. When the two orders disagree,
+    trust the side whose (extent, size) pair is possible in this source —
+    and take that side's size too, since the corrupt order poisoned both
+    its fields. A disagreement where both sides are possible (or neither)
+    still refuses: ambiguity is never guessed away.
+    """
+    loc_le = struct.unpack("<I", rec[2:6])[0]
+    loc_be = struct.unpack(">I", rec[6:10])[0]
+    size_le = struct.unpack("<I", rec[10:14])[0]
+    size_be = struct.unpack(">I", rec[14:18])[0]
+    if loc_le == loc_be and size_le == size_be:
+        return loc_le, size_le
+
+    def possible(loc: int, size: int) -> bool:
+        rel = loc - lba_base  # evaluate in track-relative space
+        if rel < 0:
+            return False
+        if rel * block + size > source_size:
+            return False
+        return size == 0 or rel >= 16  # sectors 0-15 are the system area
+
+    le_ok = possible(loc_le, size_le)
+    be_ok = possible(loc_be, size_be)
+    if le_ok == be_ok:
+        raise ValueError(
+            f"both-endian extent/size mismatch on {fi!r}: LE "
+            f"({loc_le}, {size_le}) vs BE ({loc_be}, {size_be}) — no unique "
+            "possible side"
+        )
+    return (loc_le, size_le) if le_ok else (loc_be, size_be)
+
+
 def _validate_path_component(name: str) -> None:
     if not name or name in {".", ".."} or "/" in name or "\\" in name:
         raise ValueError(f"invalid ISO9660 path component {name!r}")
@@ -100,14 +140,15 @@ def _walk(
                 raise ValueError(f"multi-extent file {fi!r} unsupported")
             if rec[26] or rec[27]:
                 raise ValueError(f"interleaved file {fi!r} unsupported")
-            loc = _both_endian_32(rec[2:10], "extent location")
+            loc, size = _record_extent_and_size(
+                rec, fi, block, src.size(), lba_base
+            )
             if loc < lba_base:
                 raise ValueError(
                     f"extent location {loc} below the LBA base {lba_base} "
                     f"on {fi!r}"
                 )
             loc -= lba_base
-            size = _both_endian_32(rec[10:18], "data length")
             name = fi.decode("latin-1")
             if not flags & _FLAG_DIR:
                 name = name.split(";", 1)[0]
@@ -158,13 +199,14 @@ def normalize_iso9660(source, *, lba_base: int = 0) -> FileTree:
         raise ValueError(f"unsupported logical block size {block_le}")
 
     root = pvd[156:190]
-    root_extent = _both_endian_32(root[2:10], "root extent")
+    root_extent, root_len = _record_extent_and_size(
+        root, b"<root>", block_le, src.size(), lba_base
+    )
     if root_extent < lba_base:
         raise ValueError(
             f"root extent {root_extent} below the LBA base {lba_base}"
         )
     root_extent -= lba_base
-    root_len = _both_endian_32(root[10:18], "root data length")
 
     entries = _walk(src, block_le, root_extent, root_len, lba_base)
     return FileTree(source=src, format="iso9660", entries=tuple(entries))

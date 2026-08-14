@@ -267,3 +267,95 @@ def test_gallop_racer_identity_and_fixity():
         b"VMODE = NTSC\n"
     )
     assert by_path["SLUS_202.55"].size == 11_073_038
+
+
+# ---------------------------------------------------------------------------
+# Single-sided both-endian corruption tolerance (BACKLOG "iso9660
+# both-endian extent-location mismatch (RE4 PAL)", 2026-08-14)
+#
+# Real-disc finding: the staged SLES_537.02 Resident Evil 4 ISO (a 2021
+# re-master, volume id 20210823_211414) carries exactly ONE corrupt record —
+# IOPRP.IMG;1 — whose LITTLE-endian fields are garbage (extent LE = the
+# volume space itself, 1,542,097; size LE diverges too) while the big-endian
+# fields are structurally possible. Rule: when the two byte orders disagree,
+# trust the side whose (extent, size) pair is possible in this source — and
+# that side's size; a both-plausible disagreement still refuses.
+# ---------------------------------------------------------------------------
+
+ISO_SYN = SYN / "synthetic.iso"
+
+
+def _find_record_offset(data: bytes, target: bytes) -> int:
+    """Mutation helper: locate one directory record's byte offset by file
+    name (mirror of the record grammar; the oracles below are tree-equality
+    and structural refusals, not this walker)."""
+    block = 2048
+    pvd = data[16 * block : 17 * block]
+    stack = [(
+        struct.unpack("<I", pvd[156 + 2 : 156 + 6])[0],
+        struct.unpack("<I", pvd[156 + 10 : 156 + 14])[0],
+    )]
+    while stack:
+        extent, length = stack.pop()
+        pos = 0
+        while pos < length:
+            off = extent * block + pos
+            rec_len = data[off]
+            if rec_len == 0:
+                pos = (pos // block + 1) * block
+                continue
+            rec = data[off : off + rec_len]
+            name_len = rec[32]
+            name = rec[33 : 33 + name_len]
+            if name == target:
+                return off
+            if rec[25] & 0x02 and not (name_len == 1 and name in (b"\x00", b"\x01")):
+                stack.append((
+                    struct.unpack("<I", rec[2:6])[0],
+                    struct.unpack("<I", rec[10:14])[0],
+                ))
+            pos += rec_len
+    raise AssertionError(f"record {target!r} not found")
+
+
+def test_single_sided_endian_corruption_is_tolerated(tmp_path):
+    """A record whose LE pair is impossible (extent beyond the source, like
+    RE4's IOPRP.IMG) resolves to the BE pair and the tree is unchanged."""
+    pristine = normalize_iso9660(FileSource(ISO_SYN))
+    data = bytearray(ISO_SYN.read_bytes())
+    off = _find_record_offset(bytes(data), b"A.BIN;1")
+    loc_be = struct.unpack(">I", bytes(data[off + 6 : off + 10]))[0]
+    size_be = struct.unpack(">I", bytes(data[off + 14 : off + 18]))[0]
+    volume_sectors = len(data) // 2048
+    struct.pack_into("<I", data, off + 2, volume_sectors)  # impossible extent
+    struct.pack_into("<I", data, off + 10, size_be + 1000)  # divergent size
+    bad = tmp_path / "single-sided.iso"
+    bad.write_bytes(data)
+    tree = normalize_iso9660(FileSource(bad))
+    assert tree.entries == pristine.entries
+    entry = next(e for e in tree.entries if e.path == "DATA/A.BIN")
+    assert entry.offset == loc_be * 2048 and entry.size == size_be
+
+
+def test_ambiguous_both_plausible_endian_mismatch_refused(tmp_path):
+    """Both sides possible but different: refuse (never guess)."""
+    data = bytearray(ISO_SYN.read_bytes())
+    off = _find_record_offset(bytes(data), b"A.BIN;1")
+    loc_be = struct.unpack(">I", bytes(data[off + 6 : off + 10]))[0]
+    struct.pack_into("<I", data, off + 2, loc_be + 1)  # plausible, different
+    bad = tmp_path / "ambiguous.iso"
+    bad.write_bytes(data)
+    with pytest.raises(ValueError, match="both-endian"):
+        normalize_iso9660(FileSource(bad))
+
+
+def test_both_sides_impossible_refused(tmp_path):
+    """No possible side at all: refuse."""
+    data = bytearray(ISO_SYN.read_bytes())
+    off = _find_record_offset(bytes(data), b"A.BIN;1")
+    for pos in (2, 6):
+        struct.pack_into("<I", data, off + pos, len(data) // 2048)
+    bad = tmp_path / "both-impossible.iso"
+    bad.write_bytes(data)
+    with pytest.raises(ValueError, match="both-endian"):
+        normalize_iso9660(FileSource(bad))

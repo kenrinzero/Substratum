@@ -133,19 +133,30 @@ and the two-key finding in
       reads after). Context: Stratum BACKLOG, Unit 3 "Separate track
       (Substratum, not Stratum)".
 
-- [ ] **iso9660 both-endian extent-location mismatch (RE4 PAL, consumer
-      report from Stratum, 2026-08-14):** the staged
-      `SLES_537.02.Resident Evil 4.iso` fails `normalize(format="iso9660")`
-      with "both-endian extent location mismatch" — a mastering-era quirk
-      where the PVD/directory-record little- and big-endian extent fields
-      disagree. This blocks a staged retail fixture for Stratum's census
-      (RE4 is one of its four `cri.adx` positive candidates, and the only
-      non-Sega one). The unit: reproduce from the staged image, characterize
-      the exact divergence (which fields, which records), then decide the
-      tolerant parse with the four-check discipline — a fallback rule
-      (e.g. trust one byte order when the other is zero or out of bounds,
-      restricted to what the differential oracle accepts), never a blanket
-      skip of the dual-endian check.
+- [x] **iso9660 both-endian extent-location mismatch (RE4 PAL, consumer
+      report from Stratum, 2026-08-14; DONE same day):** the staged
+      `SLES_537.02.Resident Evil 4.iso` failed
+      `normalize(format="iso9660")` with "both-endian extent location
+      mismatch: LE 1542097 != BE 1792". Characterization: the disc (a 2021
+      re-master, volume id `20210823_211414`, filename
+      `RIPADO_POR_LEGADO_GAMES_PARA_M.`) carries exactly **one corrupt
+      record** — `IOPRP.IMG;1` — whose *little-endian* fields are garbage
+      (extent LE = the volume space itself; size LE diverges) while the
+      big-endian pair is the only structurally possible one. Even 7-Zip
+      26.02 errors on this disc. Fix: `_record_extent_and_size` — when the
+      byte orders disagree, trust the side whose (extent, size) pair is
+      possible in this source (evaluated in track-relative space so the GD
+      `lba_base` composition stays consistent), taking that side's size
+      too; a both-plausible (or neither-possible) disagreement still
+      refuses — ambiguity is never guessed away. TDD: single-sided
+      corruption mutates to the identical FileTree; both-plausible and
+      both-impossible stay structural reds. Retail proof: RE4 walks to 9
+      files (`IOPRP.IMG` at extent 1792/size 275,345 — the BE pair).
+      Consumer result recorded for Stratum: RE4 = `cri.afs` 2 hits
+      (`BIO4MOV.AFS`, `BIO4MOV2.AFS`), zero loose ADX (its `(c)CRI` are
+      AFS-packed) — so RE4 is an **afs** publisher-diversity upgrade
+      (Capcom), not the adx one. Open curiosity noted: `BIO4DAT.AFS` did
+      not fire — outside this unit's scope.
 
 - [x] **saturn-dc-raw rejects the Dreamcast GD-ROM high-density area (consumer
       request from Stratum, 2026-08-14; DONE same day):** the staged Sonic
