@@ -169,21 +169,33 @@ and the two-key finding in
       proving the composition (→ new ask below): `iso9660` cannot walk
       SA2's inner filesystem yet.**
 
-- [ ] **iso9660 cannot walk the SA2 GD-ROM filesystem (consumer request
-      from Stratum, 2026-08-14, found while proving the DC-gap fix):** the
-      track now remaps cleanly, and the PVD at inner sector 16 parses
-      (CD001, volume space 504,150 LE==BE), but the PVD's root directory
-      record claims extent **45,020** — where the bytes are high-entropy
-      file content — while actual ISO9660 directory records (`1ST_READ.BIN`,
-      ADX filenames) sit at inner sectors **~20–36**, and clean structure is
-      everywhere (IP.BIN `SEGA SEGAKATANA` at sector 0, ADX `(c)CRI`
-      headers from sector 8,359, MPEG/SFD pack headers at sector 100,000).
-      Investigate before coding: re-parse the PVD root record byte-exactly
-      (offset 156), check for a second/descriptor-set variant or mastered
-      poison values, and decide whether this is a Substratum parse gap or a
-      disc-mastering anti-rip quirk needing a documented tolerant rule.
-      Blocks Stratum's `cri.adx` 2nd positive (the last hop) and Quarry's
-      spare-ADX enumeration.
+- [x] **iso9660 cannot walk the SA2 GD-ROM filesystem (consumer request
+      from Stratum, 2026-08-14, found while proving the DC-gap fix; DONE
+      same day):** the PVD parsed but its root record claimed extent
+      45,020 where bytes were high-entropy. Byte-exact diagnosis: **not
+      poison — a mastering convention. Dreamcast GD-ROM data tracks are
+      mastered with ISO9660 extent locations DISC-ABSOLUTE** (the data
+      track begins at LBA 45,000): on the staged SA2 dump every extent —
+      PVD root record, both path tables, every directory record's
+      self/parent/child references — carries exactly +45,000, while the
+      descriptor set sits track-relative at sectors 16-17 and the volume
+      space stays the track size. The base is self-described by the
+      track's own sector-0 address (MSF 10:02:00 = frame 45,150). Fix:
+      `normalize_iso9660(source, *, lba_base=0)` translates extent
+      locations uniformly (default 0 keeps every existing image
+      byte-for-byte unchanged; an extent below the declared base is a
+      structural red, never a silent misread), and
+      `saturn_dc_raw.lba_base(track)` derives the base from the sector-0
+      address (0 for Saturn CDs at 00:02:00). Committed mutation proof: a
+      GD-style re-master of the synthetic fixture (all extents +45,000,
+      origin 10:02:00) walks to the *identical* FileTree via the
+      composition. Retail proof: SA2 composes to **2,572 files in ~1 s**
+      (`1ST_READ.BIN` present; 137 loose `.ADX` — the disc's 11,240 raw
+      `(c)CRI` are mostly Sofdec `.SFD`-embedded audio), and Stratum's
+      full registry sweep over it returns **`cri.adx`=137 +
+      `cri.afs`=3** — the consumer unblock this ask existed for. Unblocks
+      Stratum's `cri.adx` 2nd positive (its measurement is Stratum's next
+      session) and Quarry's spare-ADX enumeration.
 
 - [ ] **`F:\game` corpus formats — RVZ / WBFS (+ GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's

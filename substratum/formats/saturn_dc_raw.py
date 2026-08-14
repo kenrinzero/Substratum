@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from substratum.contract import ByteSource, ByteView, FileSource
 
-__all__ = ["sniff", "normalize_saturn_dc_raw"]
+__all__ = ["sniff", "normalize_saturn_dc_raw", "lba_base"]
 
 # --- CD-ROM Mode 1 sector layout (ECMA-130 / Yellow Book) ------------------
 SECTOR = 2352
@@ -218,6 +218,36 @@ def sniff(source: ByteSource) -> bool:
     if source.read_at(0, SYNC_LEN) != SYNC:
         return False
     return source.read_at(MODE_OFFSET, 1) == b"\x01"
+
+
+def lba_base(source) -> int:
+    """Disc-absolute LBA where this raw data track begins.
+
+    Derived from sector 0's own address header (ECMA-130: LBA 0 = MSF
+    00:02:00, i.e. the 150-frame pregap). A Saturn CD track starts at or
+    near LBA 0 → ``0``; a Dreamcast GD-ROM high-density track starts at
+    absolute MSF 10:02:00 → ``45_000``. GD data tracks are mastered with
+    ISO9660 extent locations **absolute from disc start** (verified on a
+    staged SA2 dump: every extent — PVD root record, path tables,
+    directory records — carries exactly +45,000), so the documented GD
+    composition is::
+
+        view = normalize(track, format="saturn-dc-raw")
+        tree = normalize_iso9660(view.source, lba_base=lba_base(track))
+    """
+    src = source if isinstance(source, ByteSource) else FileSource(source)
+    header = src.read_at(MSF_OFFSET, 3)
+    frames = (
+        _decode_minute(header[0], 0) * 60 * 75
+        + _from_bcd(header[1], "second", 0) * 75
+        + _from_bcd(header[2], "frame", 0)
+    )
+    if frames < 150:
+        raise ValueError(
+            f"saturn-dc-raw: track starts at MSF frame {frames} (< 00:02:00); "
+            "not an ECMA-130 data track"
+        )
+    return frames - 150
 
 
 def normalize_saturn_dc_raw(source) -> ByteView:

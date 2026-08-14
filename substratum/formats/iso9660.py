@@ -49,7 +49,13 @@ def _validate_path_component(name: str) -> None:
         raise ValueError(f"invalid ISO9660 path component {name!r}")
 
 
-def _walk(src: ByteSource, block: int, root_extent: int, root_len: int) -> list[FileEntry]:
+def _walk(
+    src: ByteSource,
+    block: int,
+    root_extent: int,
+    root_len: int,
+    lba_base: int,
+) -> list[FileEntry]:
     entries: list[FileEntry] = []
     seen: set[int] = set()
     stack: list[tuple[str, int, int]] = [("", root_extent, root_len)]
@@ -95,6 +101,12 @@ def _walk(src: ByteSource, block: int, root_extent: int, root_len: int) -> list[
             if rec[26] or rec[27]:
                 raise ValueError(f"interleaved file {fi!r} unsupported")
             loc = _both_endian_32(rec[2:10], "extent location")
+            if loc < lba_base:
+                raise ValueError(
+                    f"extent location {loc} below the LBA base {lba_base} "
+                    f"on {fi!r}"
+                )
+            loc -= lba_base
             size = _both_endian_32(rec[10:18], "data length")
             name = fi.decode("latin-1")
             if not flags & _FLAG_DIR:
@@ -109,8 +121,20 @@ def _walk(src: ByteSource, block: int, root_extent: int, root_len: int) -> list[
     return entries
 
 
-def normalize_iso9660(source) -> FileTree:
+def normalize_iso9660(source, *, lba_base: int = 0) -> FileTree:
+    """Walk one ISO9660 filesystem into a ``FileTree``.
+
+    ``lba_base`` translates **disc-absolute** extent locations into this
+    source's track-relative sector space (GD-ROM composition: Dreamcast
+    data tracks are mastered with extents absolute from disc start, where
+    the data track begins at LBA 45,000 — see ``saturn_dc_raw.lba_base``).
+    The default ``0`` keeps track-relative images byte-for-byte unchanged.
+    Descriptor *positions* (the volume-descriptor set at sector 16) are
+    always track-relative.
+    """
     src = source if isinstance(source, ByteSource) else FileSource(source)
+    if lba_base < 0:
+        raise ValueError(f"lba_base must be >= 0 (got {lba_base})")
 
     pvd = None
     for i in range(16, 16 + _VDS_SCAN_CAP):
@@ -135,7 +159,12 @@ def normalize_iso9660(source) -> FileTree:
 
     root = pvd[156:190]
     root_extent = _both_endian_32(root[2:10], "root extent")
+    if root_extent < lba_base:
+        raise ValueError(
+            f"root extent {root_extent} below the LBA base {lba_base}"
+        )
+    root_extent -= lba_base
     root_len = _both_endian_32(root[10:18], "root data length")
 
-    entries = _walk(src, block_le, root_extent, root_len)
+    entries = _walk(src, block_le, root_extent, root_len, lba_base)
     return FileTree(source=src, format="iso9660", entries=tuple(entries))

@@ -493,3 +493,149 @@ def test_high_density_minute_with_invalid_low_nibble_refused(tmp_path):
     bad_bin = tmp_path / "bad.bin"
     bad_bin.write_bytes(data)
     assert_structural_failure(_checks(bad_bin), "invalid BCD minute 0xfa")
+
+
+# ---------------------------------------------------------------------------
+# GD-ROM disc-absolute LBA composition (BACKLOG "iso9660 cannot walk the SA2
+# GD-ROM filesystem", 2026-08-14)
+#
+# Real-disc finding: Dreamcast GD-ROM data tracks are mastered with ISO9660
+# extent locations ABSOLUTE from disc start (the data track begins at LBA
+# 45,000). On the staged SA2 dump every extent — PVD root record, both path
+# tables, every directory record's self/parent/child references — carries
+# exactly +45,000, while the descriptors themselves sit track-relative at
+# sectors 16-17 and the volume space stays the track size. The track's own
+# sector-0 address (MSF 10:02:00 = frame 45,150) states the base. Saturn
+# CDs start at 00:02:00 -> base 0, so the composition is a no-op there.
+# ---------------------------------------------------------------------------
+
+GD_BASE = 45_000
+SA2_DIR = ROOT / "fixtures" / "_local" / "Sonic Adventure 2 (Dreamcast)"
+SA2_TRACK = SA2_DIR / "track03.bin"
+
+import pytest  # noqa: E402
+
+skip_if_no_sa2 = pytest.mark.skipif(
+    not SA2_TRACK.is_file(),
+    reason="staged Sonic Adventure 2 GDI set absent",
+)
+
+
+def _shift_iso_extents_gd(data: bytearray, k: int) -> None:
+    """Mutation helper: rewrite the inner ISO as a GD-style absolute master.
+
+    Adds ``k`` to every extent-location field (both endians): the PVD root
+    record, and every directory record's extent — including self/parent
+    references, as real GD masters carry them absolute too. Sizes, names,
+    flags, and descriptor positions are untouched. This locates fields by
+    mirroring the record grammar; it is a mutator, not an oracle — the test
+    oracle is full FileTree-entry equality against the unshifted walk.
+    """
+    import struct as _struct
+
+    user = 16  # user data starts at byte 16 of each 2352 sector
+
+    def read_user(lba: int, n: int) -> bytes:
+        return bytes(data[lba * raw_module.SECTOR + user : lba * raw_module.SECTOR + user + n])
+
+    def bump(record_offset: int) -> int:
+        """Shift one extent field by +k (both endians); return the pre-shift
+        value — the record's PHYSICAL location, which the walker below must
+        keep visiting while only the metadata moves."""
+        base = record_offset
+        le, = _struct.unpack("<I", bytes(data[base + 2 : base + 6]))
+        be, = _struct.unpack(">I", bytes(data[base + 6 : base + 10]))
+        assert le == be
+        _struct.pack_into("<I", data, base + 2, le + k)
+        _struct.pack_into(">I", data, base + 6, le + k)
+        return le
+
+    def walk_dir(phys_extent: int, length: int) -> None:
+        pos = 0
+        while pos < length:
+            rec_len = data[phys_extent * raw_module.SECTOR + user + pos]
+            if rec_len == 0:
+                pos = (pos // 2048 + 1) * 2048
+                continue
+            abs_rec = phys_extent * raw_module.SECTOR + user + pos
+            phys_child = bump(abs_rec)  # every record's extent goes absolute
+            flags = data[abs_rec + 25]
+            size, = _struct.unpack("<I", bytes(data[abs_rec + 10 : abs_rec + 14]))
+            name_len = data[abs_rec + 32]
+            is_self_parent = (
+                name_len == 1
+                and bytes(data[abs_rec + 33 : abs_rec + 34]) in (b"\x00", b"\x01")
+            )
+            if flags & 0x02 and not is_self_parent:
+                walk_dir(phys_child, size)
+            pos += rec_len
+
+    pvd_record = 16 * raw_module.SECTOR + user + 156
+    phys_root = bump(pvd_record)
+    root_size, = _struct.unpack("<I", bytes(data[pvd_record + 10 : pvd_record + 14]))
+    walk_dir(phys_root, root_size)
+
+
+def test_lba_base_derivations(tmp_path):
+    """Saturn tracks start at 00:02:00 -> base 0; a GD-origin track -> 45,000."""
+    from substratum.formats.saturn_dc_raw import lba_base
+
+    assert lba_base(BIN) == 0
+    assert lba_base(HOMEBREW_BIN) == 0
+    data = bytearray(BIN.read_bytes())
+    _set_msf_sequence(data, GD_BASE + 150)  # absolute MSF 10:02:00
+    gd_bin = tmp_path / "gd-origin.bin"
+    gd_bin.write_bytes(data)
+    assert lba_base(gd_bin) == GD_BASE
+
+
+def test_gd_composition_translates_absolute_extents(tmp_path):
+    """A GD-style master (absolute extents + 10:02:00 origin) walks, via
+    lba_base, to the exact same FileTree as the track-relative original."""
+    from substratum.formats.iso9660 import normalize_iso9660
+    from substratum.formats.saturn_dc_raw import lba_base
+
+    plain_tree = _normalize_saturn_to_tree(BIN)
+
+    data = bytearray(BIN.read_bytes())
+    _shift_iso_extents_gd(data, GD_BASE)
+    _set_msf_sequence(data, GD_BASE + 150)
+    gd_bin = tmp_path / "gd.bin"
+    gd_bin.write_bytes(data)
+
+    view = normalize_saturn_dc_raw(gd_bin)
+    tree = normalize_iso9660(view.source, lba_base=lba_base(gd_bin))
+    assert tree.entries == plain_tree.entries
+
+
+def test_extent_below_lba_base_is_structural_red():
+    """An unshifted image read with a GD base refuses loudly (no silent
+    misreads): the root extent sits below the declared base."""
+    from substratum.formats.iso9660 import normalize_iso9660
+    from substratum.formats.saturn_dc_raw import lba_base
+
+    view = normalize_saturn_dc_raw(BIN)
+    assert lba_base(BIN) == 0  # the fixture really is track-relative
+    with pytest.raises(ValueError, match="below the LBA base"):
+        normalize_iso9660(view.source, lba_base=GD_BASE)
+
+
+@skip_if_no_sa2
+def test_sa2_gd_composition_is_green():
+    """The staged retail dump: remap -> lba_base composition -> full tree."""
+    from substratum.formats.iso9660 import normalize_iso9660
+    from substratum.formats.saturn_dc_raw import lba_base
+
+    view = normalize_saturn_dc_raw(SA2_TRACK)
+    base = lba_base(SA2_TRACK)
+    assert base == GD_BASE
+    tree = normalize_iso9660(view.source, lba_base=base)
+    files = [e for e in tree.entries if e.kind == "file"]
+    names = {e.path for e in files}
+    assert "1ST_READ.BIN" in names
+    adx = [p for p in names if p.upper().endswith(".ADX")]
+    assert len(adx) > 100, (
+        f"expected SA2's loose ADX bank (137 on this dump; the disc's huge "
+        f"raw (c)CRI count mostly lives inside Sofdec .SFD video audio), "
+        f"got {len(adx)}"
+    )
