@@ -147,29 +147,43 @@ and the two-key finding in
       restricted to what the differential oracle accepts), never a blanket
       skip of the dual-endian check.
 
-- [ ] **saturn-dc-raw rejects the Dreamcast GD-ROM high-density area (consumer
-      request from Stratum, 2026-08-14):** the staged Sonic Adventure 2 GDI
-      set's data track (`track03.bin`, 504,200 × 2352-byte sectors, data
-      track at LBA 45000 per the `.gdi`) fails
+- [x] **saturn-dc-raw rejects the Dreamcast GD-ROM high-density area (consumer
+      request from Stratum, 2026-08-14; DONE same day):** the staged Sonic
+      Adventure 2 GDI set's data track (`track03.bin`, 504,200 raw sectors,
+      data track at LBA 45000 per the `.gdi`) failed
       `normalize(format="saturn-dc-raw")` at **sector 404850** with
-      "invalid BCD minute 0xa0" — the high-density region carries
-      addresses that do not fit the low-density BCD/MSF grammar the eager
-      per-sector validation assumes (the long-known DC GD-ROM
-      45000-sector LBA-base gap; Quarry's BACKLOG names this exact
-      composition path for its spare-ADX enumeration and is equally
-      blocked). The unit: reproduce from the staged `track03.bin`,
-      characterize the actual address bytes across the 45000-boundary and
-      the failure band (which sectors are non-BCD, whether addresses
-      derive from absolute LBA without rollover, whether a second address
-      base appears), then decide the tolerant rule inside the existing
-      design — e.g. compute the expected MSF from the declared LBA base
-      and compare structurally, or relax the BCD check only where
-      sync + mode + the pinned-ECM error-code oracle still validate the
-      sector — never a blanket skip of address validation. Unblocks:
-      Stratum's `cri.adx` second positive (SA2 carries 11,240 raw
-      `(c)CRI`, expected loose ADX) and Dreamcast-side census negatives.
-      Note: 4x4 Evo's data track being Mode 2 is scope-by-design (raw
-      Mode-1 only), not part of this ask.
+      "invalid BCD minute 0xa0". **Empirical characterization (probe over
+      the whole track): addresses run contiguously from absolute MSF
+      10:02:00 (= LBA 45,000 + the 150-frame pregap); BCD holds to the last
+      representable 99:59:74 at sector 404,849, then minute 100 continues
+      the BCD pattern with hexadecimal tens digits — 0xA0 = 100 … 0xC2 =
+      122 at the track end.** Fix: the minute's high nibble may now be
+      0xA–0xF (seconds/frames stay strict BCD; the low nibble stays ≤ 9);
+      per-sector MSF contiguity remains the structural gate, and genuine
+      Saturn media tops out at 99:59:74 so the relaxation cannot fire
+      there. TDD: minute-100 continuation accepted (user stream
+      byte-identical), hex-minute at a wrong position still refused
+      (contiguity), invalid low nibble still refused; the pre-existing
+      0xFA red test is unchanged. Verified on the real track: the eager
+      pass now validates all 504,150 sectors. **Follow-up gap found while
+      proving the composition (→ new ask below): `iso9660` cannot walk
+      SA2's inner filesystem yet.**
+
+- [ ] **iso9660 cannot walk the SA2 GD-ROM filesystem (consumer request
+      from Stratum, 2026-08-14, found while proving the DC-gap fix):** the
+      track now remaps cleanly, and the PVD at inner sector 16 parses
+      (CD001, volume space 504,150 LE==BE), but the PVD's root directory
+      record claims extent **45,020** — where the bytes are high-entropy
+      file content — while actual ISO9660 directory records (`1ST_READ.BIN`,
+      ADX filenames) sit at inner sectors **~20–36**, and clean structure is
+      everywhere (IP.BIN `SEGA SEGAKATANA` at sector 0, ADX `(c)CRI`
+      headers from sector 8,359, MPEG/SFD pack headers at sector 100,000).
+      Investigate before coding: re-parse the PVD root record byte-exactly
+      (offset 156), check for a second/descriptor-set variant or mastered
+      poison values, and decide whether this is a Substratum parse gap or a
+      disc-mastering anti-rip quirk needing a documented tolerant rule.
+      Blocks Stratum's `cri.adx` 2nd positive (the last hop) and Quarry's
+      spare-ADX enumeration.
 
 - [ ] **`F:\game` corpus formats — RVZ / WBFS (+ GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's

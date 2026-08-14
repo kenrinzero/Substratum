@@ -436,3 +436,60 @@ def test_wrong_offset_slicer_dies_structurally():
         raise AssertionError(
             "mutant not caught — wrong-offset slicer is green-as-red"
         )
+
+
+# ---------------------------------------------------------------------------
+# GD-ROM high-density minute continuation (BACKLOG "saturn-dc-raw rejects the
+# Dreamcast GD-ROM high-density area", 2026-08-14)
+#
+# Real-disc finding (staged Sonic Adventure 2 track03.bin, 504,150 sectors):
+# addresses run contiguously from absolute MSF 10:02:00 (LBA 45,000 + the
+# 150-frame pregap); BCD holds to the last representable 99:59:74, then
+# minute 100 encodes as 0xA0 — the BCD pattern continued with hexadecimal
+# tens digits (0xA=10, 0xB=11, 0xC=12 ... up to 0xC2 = minute 122 at the
+# track end). Seconds/frames stay strict BCD; sync and mode hold throughout.
+# Genuine Saturn media tops out at 99:59:74, so relaxing the minute's high
+# nibble cannot fire there, and per-sector MSF contiguity stays the gate.
+# ---------------------------------------------------------------------------
+
+
+def test_gdrom_minute_100_continuation_accepted(tmp_path):
+    """Addresses running through 99:59:74 -> 0xA0:00:00 normalize cleanly
+    and the user stream is untouched by the header encoding."""
+    data = bytearray(BIN.read_bytes())
+    n_sectors = len(data) // raw_module.SECTOR
+    origin = 449_999  # 99:59:74; the next sector is 100:00:00 (0xA0:00:00)
+    _set_msf_sequence(data, origin)
+    assert data[raw_module.SECTOR + raw_module.MSF_OFFSET] == 0xA0
+    assert data[raw_module.SECTOR + raw_module.MSF_OFFSET + 1] == 0x00
+    gd_bin = tmp_path / "gd.bin"
+    gd_bin.write_bytes(data)
+
+    original = normalize_saturn_dc_raw(BIN)
+    continued = normalize_saturn_dc_raw(gd_bin)
+    # The user stream is byte-identical: only the header encoding changed.
+    span = min(4, n_sectors) * raw_module.USER_LEN
+    assert continued.source.read_at(0, span) == original.source.read_at(0, span)
+
+
+def test_high_density_minute_not_at_expected_position_refused(tmp_path):
+    """The relaxed minute never blanket-accepts: a hex-continuation minute
+    planted where contiguity expects a different frame is still red."""
+    data = bytearray(BIN.read_bytes())
+    _set_msf_sequence(data, 0)
+    data[2 * raw_module.SECTOR + raw_module.MSF_OFFSET] = 0xC2  # minute 122
+    bad_bin = tmp_path / "bad.bin"
+    bad_bin.write_bytes(data)
+    assert_structural_failure(_checks(bad_bin), "not contiguous")
+
+
+def test_high_density_minute_with_invalid_low_nibble_refused(tmp_path):
+    """0xFA-style minutes (invalid low nibble) stay red — the existing
+    structural-red class is unchanged by the relaxation."""
+    data = bytearray(BIN.read_bytes())
+    _set_msf_sequence(data, 449_999)
+    data[0]  # no-op; keep sector 1's minute but corrupt its low nibble
+    data[raw_module.SECTOR + raw_module.MSF_OFFSET] = 0xFA
+    bad_bin = tmp_path / "bad.bin"
+    bad_bin.write_bytes(data)
+    assert_structural_failure(_checks(bad_bin), "invalid BCD minute 0xfa")

@@ -71,8 +71,27 @@ def _from_bcd(value: int, field: str, index: int) -> int:
     return high * 10 + low
 
 
+def _decode_minute(value: int, index: int) -> int:
+    """Decode a sector-address minute byte.
+
+    Standard BCD for minutes 0-99. The GD-ROM high-density area continues
+    the pattern past 99:59:74 with hexadecimal tens digits — minute 100 is
+    0xA0, up to 0xC2 (=122) at a full 1.2 GB track's end (characterized on
+    a real dump: Sonic Adventure 2 track03, 2026-08-14). Genuine Saturn
+    media tops out at 99:59:74, so the relaxed high nibble never fires
+    there, and the per-sector MSF contiguity check remains the structural
+    gate against a planted continuation byte at a wrong position.
+    """
+    high, low = value >> 4, value & 0x0F
+    if low > 9:
+        raise ValueError(
+            f"saturn-dc-raw: sector {index} invalid BCD minute 0x{value:02x}"
+        )
+    return high * 10 + low
+
+
 def _decode_msf(raw: bytes, index: int) -> int:
-    minute = _from_bcd(raw[MSF_OFFSET], "minute", index)
+    minute = _decode_minute(raw[MSF_OFFSET], index)
     second = _from_bcd(raw[MSF_OFFSET + 1], "second", index)
     frame = _from_bcd(raw[MSF_OFFSET + 2], "frame", index)
     if second >= 60:
