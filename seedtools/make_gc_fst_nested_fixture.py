@@ -18,7 +18,7 @@ image (padded to GC disc size) and the wit-extracted reference bytes are
 gitignored, materialized by this seedtool on demand. The image borrows the
 retail Hulk's `sys/` region (boot/bi2/apploader/main.dol) so wit validates
 the disc structure; it is built from the gitignored retail ISO in
-fixtures/_local/game.iso and never enters git.
+fixtures/_local/The Hulk (USA).iso and never enters git.
 
 Usage: python seedtools/make_gc_fst_nested_fixture.py
 """
@@ -309,7 +309,7 @@ def extract_reference(exe: Path, iso: Path, dest: Path) -> Path:
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
-    retail_iso = root / "fixtures" / "_local" / "game.iso"
+    retail_iso = root / "fixtures" / "_local" / "The Hulk (USA).iso"
     if not retail_iso.exists():
         raise SystemExit(
             f"retail ISO not found: {retail_iso}\n"

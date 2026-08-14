@@ -165,7 +165,7 @@ def test_sniff_rejects_non_partition():
 def test_sniff_rejects_gamecube_disc():
     """A GC disc has a printable game ID at offset 0 but must be left for
     gc-fst (its magic at 0x1C)."""
-    gc_iso = ROOT / "fixtures" / "_local" / "game.iso"
+    gc_iso = ROOT / "fixtures" / "_local" / "The Hulk (USA).iso"
     if not gc_iso.is_file():
         pytest.skip("GC Hulk ISO not present")
     assert not sniff(FileSource(gc_iso))

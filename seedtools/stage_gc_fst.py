@@ -4,7 +4,7 @@ FIXTURE REQUEST retail drop).
 
 Usage: python seedtools/stage_gc_fst.py [<iso-file>] [<fixture-name>]
 
-Defaults: fixtures/_local/game.iso  ->  fixtures/gc_fst/hulk/
+Defaults: fixtures/_local/The Hulk (USA).iso  ->  fixtures/gc_fst/hulk/
 
 Builds the expected manifest from **wit's `files-ll` listing** (the sole
 differential tool — parsed independently of substratum's own parser), and
@@ -124,7 +124,7 @@ def extract_reference(exe: Path, iso: Path, dest: Path) -> Path:
 
 
 def main() -> None:
-    iso_arg = sys.argv[1] if len(sys.argv) > 1 else "fixtures/_local/game.iso"
+    iso_arg = sys.argv[1] if len(sys.argv) > 1 else "fixtures/_local/The Hulk (USA).iso"
     name = sys.argv[2] if len(sys.argv) > 2 else "hulk"
     root = Path(__file__).resolve().parent.parent
     iso = (root / iso_arg) if not Path(iso_arg).is_absolute() else Path(iso_arg)

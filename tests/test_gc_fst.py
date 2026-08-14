@@ -6,7 +6,7 @@ format spec — never from substratum's parser. Reference bytes come from
 `wit extract` (re-extracted by the stager into fixtures/gc_fst/hulk/reference/,
 gitignored — retail bytes never enter git).
 
-The retail ISO lives in gitignored fixtures/_local/game.iso (FIXTURE REQUEST
+The retail ISO lives in gitignored fixtures/_local/The Hulk (USA).iso (FIXTURE
 drop). The suite SKIPS cleanly when it is absent, so a fresh clone with no
 retail drop stays green; only the manifest is committed.
 """
@@ -29,7 +29,7 @@ from tests.assertions import assert_structural_failure
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "fixtures" / "gc_fst" / "hulk"
-ISO = ROOT / "fixtures" / "_local" / "game.iso"
+ISO = ROOT / "fixtures" / "_local" / "The Hulk (USA).iso"
 REFERENCE = FIXTURE / "reference"
 
 # Nested fixture (proof-strengthening): built on demand by the seedtool
@@ -54,7 +54,7 @@ NESTED_TOOLS = {
 
 skip_if_no_iso = pytest.mark.skipif(
     not ISO.exists(),
-    reason="retail GameCube ISO not present in fixtures/_local/game.iso "
+    reason="retail GameCube ISO not present in fixtures/_local/The Hulk (USA).iso "
     "(FIXTURE REQUEST drop — metadata-only publication per DESIGN.md § 5)",
 )
 
@@ -179,7 +179,7 @@ def test_expected_manifest_validates_against_schema():
     doc = json.loads((FIXTURE / "expected.manifest.json").read_text("ascii"))
     jsonschema.Draft202012Validator(schema).validate(doc)
     assert doc["format"] == "gc-fst"
-    assert doc["source"]["name"] == "game.iso"
+    assert doc["source"]["name"] == "The Hulk (USA).iso"
     assert doc["source"]["size"] == 1459978240
     # fixture is flat: only files, no dirs (root is implicit)
     kinds = {e["kind"] for e in doc["entries"]}
