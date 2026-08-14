@@ -105,6 +105,41 @@ and the two-key finding in
 
 ## Next (in dispatch order)
 
+- [ ] **Wii partition read performance — decrypt-once / caching source
+      (consumer request from Stratum, 2026-08-14):** the decrypted
+      Wii-partition `ByteView` re-decrypts on every `read_at`, and pure-Python
+      AES runs ~0.5 MiB/s, so a census that reads one header per file over
+      Mario Kart Wii's data partition (2007 files) took **133 s** (~15
+      reads/s), and any detector that walks structure with multi-read access
+      (e.g. a Yaz0 chunk walk) would take hours. Wii prevalence in Stratum's
+      census is therefore infeasible through the current source. Needed,
+      behind the unchanged public `ByteSource` contract:
+      (a) a cluster-level LRU cache over decrypted 0x7C00-byte data regions
+      (plus memoized per-cluster key/IV setup) so repeated reads in a cluster
+      are free; and (b) an explicit **decrypt-once materialization path** for
+      operator-run sweeps — spool the whole decrypted partition to a local
+      temp file and serve plain reads from it — since first-touch decrypt of a
+      multi-GB partition at 0.5 MiB/s stays expensive no matter the caching.
+      The stdlib-only decision stands (no crypto dependency); benchmark gate:
+      the 2007-file MKWii census drops from 133 s to single-digit seconds
+      warm, and a structural walk over a staged `.szs` completes in
+      interactive time. Context: Stratum BACKLOG, Unit 3 "Separate track
+      (Substratum, not Stratum)".
+
+- [ ] **iso9660 both-endian extent-location mismatch (RE4 PAL, consumer
+      report from Stratum, 2026-08-14):** the staged
+      `SLES_537.02.Resident Evil 4.iso` fails `normalize(format="iso9660")`
+      with "both-endian extent location mismatch" — a mastering-era quirk
+      where the PVD/directory-record little- and big-endian extent fields
+      disagree. This blocks a staged retail fixture for Stratum's census
+      (RE4 is one of its four `cri.adx` positive candidates, and the only
+      non-Sega one). The unit: reproduce from the staged image, characterize
+      the exact divergence (which fields, which records), then decide the
+      tolerant parse with the four-check discipline — a fallback rule
+      (e.g. trust one byte order when the other is zero or out of bounds,
+      restricted to what the differential oracle accepts), never a blanket
+      skip of the dual-endian check.
+
 - [ ] **New3DS 9.3 variant (opportunistic — media-scarce):** `ncchflag[3] ==
       0x0A`, keyslot `0x18`, no seeddb. Tooling-wise this falls out of the 9.6
       pure-Python path for free (`0x18` keyX is in the parked keyset, same
