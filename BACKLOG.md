@@ -282,16 +282,28 @@ and the two-key finding in
       (2,149 → `.3ds`), GameCube (2,019 → `.rvz`), Dreamcast (1,509 →
       `.bin`+`.cue`), Wii (554 → `.rvz`), Xbox (376 → `.iso`). Substratum has
       no zip layer, so **Stratum's Unit 4 currently reaches none of them.**
-      Decide the shape before building: every zip sampled is **DEFLATE, not
-      STORED** (115/115 members across seven platforms), so this cannot be a
-      cheap offset map — deflate is not seekable, and a zip layer must spool
-      to a temp file the way `chd` already does. That makes a full sweep
-      extraction-dominated in both time and disk. Given these are archival
-      storage copies, an **operator pre-extraction path** may genuinely beat a
-      normalizer; record the choice either way. Multi-file members
-      (`.bin`+`.cue`, multi-track Saturn/DC sets reaching 90 members in one
-      archive) mean the layer must return a `FileTree`, not a single
-      `ByteView`.
+      Every zip sampled is **DEFLATE, not STORED** (115/115 members across
+      seven platforms), so this cannot be a cheap offset map — deflate is not
+      seekable, and a zip layer must spool to a temp file the way `chd`
+      already does. Multi-file members (`.bin`+`.cue`, multi-track Saturn/DC
+      sets reaching 90 members in one archive) mean the layer returns a
+      `FileTree`, not a single `ByteView`.
+
+      **DECIDED 2026-08-20 — build the normalizer; operator pre-extraction is
+      off the table.** The choice is forced by disk, not preference: the
+      corpus is **19.13 TB compressed** (PS2 alone 7.94 TB) on a 24 TB volume
+      with **4.59 TB free**. Uncompressed it exceeds 30 TB, so there is not
+      room to pre-extract even one of the larger platforms, let alone nine.
+      A normalizer doing per-title **extract → scan → delete** peaks at a
+      single title (~8 GB worst case, Xbox), which the free space absorbs
+      trivially, needs no operator labour, and leaves the archive untouched.
+      It also matches the pattern `chd` already set. **Consequence for the
+      consumer:** the sweep is extraction-dominated — decompressing ~30 TB of
+      deflate plus chdman over 8,945 CHDs is a multi-day continuous job — so
+      Stratum's runner must checkpoint per title and be resumable, which its
+      Unit 4 hard rules already require. Peak disk stays flat regardless of
+      corpus size, which is the property that makes the census runnable at
+      all.
 
 - [ ] **3DS RomFS (IVFC) filesystem normalizer (consumer request from
       Stratum, 2026-08-20):** the 3DS chain currently bottoms out at opaque
@@ -336,6 +348,12 @@ and the two-key finding in
       RVZ is one unit for a comparable share of the corpus to the others, and
       it is the *only* route to two entire platforms — the ones carrying the
       Nintendo formats (Yaz0, U8) whose prevalence Stratum most needs to rank.
+      **The zip decision above moved the arithmetic in RVZ's favour:** the
+      runner must extract-and-delete per title regardless, so adding RVZ costs
+      one normalizer unit and **zero** additional disk or operator work
+      (GC/Wii are `zip → rvz → gc-fst | wii chain`, and the zip half is being
+      built anyway). One unit is now the whole distance to full platform
+      coverage.
       Left dropped pending an explicit re-decision rather than silently
       reinstated; whoever schedules Unit 4's prerequisites should settle it
       then. **The durable consequence stands either way:** while GC/Wii are
