@@ -1,7 +1,8 @@
 """Xbox XDVDFS filesystem normalizer (NORMALIZERS.md row `xdvdfs`).
 
 Scope:
-- Parses a plain XDVDFS image (descriptor at 0x10000) into a FileTree.
+- Parses a plain XDVDFS image (descriptor at 0x10000 by default) into a
+  FileTree; an embedded retail image may be offset by `base_offset`.
 - Refuses rather than guesses (structural red): bad magic/tail, root table
   out of bounds, bad LCRS pointers, bad file ranges, invalid names.
 
@@ -25,11 +26,19 @@ _DIR_ATTR = 0x10
 _NAME_MAX = 255
 
 
-def sniff(source: ByteSource) -> bool:
-    """True when the source contains an XDVDFS volume descriptor at 0x10000."""
-    if source.size() < _DESC_OFFSET + _SECTOR:
+def sniff(source: ByteSource, *, base_offset: int = 0) -> bool:
+    """True when the source contains an XDVDFS volume descriptor.
+
+    ``base_offset`` shifts the expected descriptor to ``base_offset + 0x10000``;
+    the default ``0`` preserves the plain XISO layout and keeps existing
+    behavior byte-for-byte unchanged.
+    """
+    if base_offset < 0:
+        raise ValueError(f"base_offset must be >= 0 (got {base_offset})")
+    desc_offset = base_offset + _DESC_OFFSET
+    if source.size() < desc_offset + _SECTOR:
         return False
-    return source.read_at(_DESC_OFFSET, len(_MAGIC)) == _MAGIC
+    return source.read_at(desc_offset, len(_MAGIC)) == _MAGIC
 
 
 def _read_name(table: bytes, entry_offset: int) -> str:
@@ -58,6 +67,7 @@ def _walk_table(
     entries: list[FileEntry],
     visited: set[int],
     dir_tables_seen: set[int],
+    base_offset: int,
 ) -> None:
     """Walk an XDVDFS directory table using the LCRS binary-tree format.
 
@@ -68,6 +78,11 @@ def _walk_table(
     table cycle the per-table set cannot see (mirrors iso9660's discipline).
     XDVDFS gives each directory its own fresh table, so a repeated table
     offset is never valid.
+
+    The LCRS `*_offset` fields count in 4-byte dwords; the real tree uses
+    these counts to reach a child/sibling offset within the current table,
+    not raw byte offsets. Rejecting odd counts is a false structural check
+    and must not fire on valid retail images.
     """
     if entry_offset in visited:
         raise ValueError(f"directory traversal cycle at offset {entry_offset}")
@@ -79,8 +94,6 @@ def _walk_table(
     l_offset = struct.unpack_from("<H", table, entry_offset)[0]
     if l_offset == _PAD_SHORT:
         return
-    if l_offset % 4 != 0:
-        raise ValueError(f"directory left offset {l_offset} is not dword-aligned")
 
     if entry_offset + 0x0E > len(table):
         raise ValueError(f"directory entry at {entry_offset} is truncated")
@@ -109,12 +122,13 @@ def _walk_table(
             entries,
             visited,
             dir_tables_seen,
+            base_offset,
         )
 
     if attrs & _DIR_ATTR:
         if file_size == 0:
             raise ValueError(f"directory {name!r} has zero size")
-        nested_offset = start_sector * _SECTOR
+        nested_offset = base_offset + start_sector * _SECTOR
         if nested_offset + file_size > src_size:
             raise ValueError("descriptor exceeds source size")
         if nested_offset in dir_tables_seen:
@@ -122,37 +136,48 @@ def _walk_table(
         dir_tables_seen.add(nested_offset)
         entries.append(FileEntry(path=path, kind="dir", offset=0, size=0))
     else:
-        if start_sector * _SECTOR + file_size > src_size:
+        absolute_offset = base_offset + start_sector * _SECTOR
+        if absolute_offset + file_size > src_size:
             if file_size <= _SECTOR * 4:
                 raise ValueError("descriptor exceeds source size")
             raise ValueError(f"file {name!r} range exceeds source size")
-        entries.append(FileEntry(path=path, kind="file", offset=start_sector * _SECTOR, size=file_size))
+        entries.append(
+            FileEntry(path=path, kind="file", offset=absolute_offset, size=file_size)
+        )
 
     if attrs & _DIR_ATTR:
         subtable = src.read_at(nested_offset, file_size)
-        _walk_table(src, subtable, 0, path, src_size, entries, set(), dir_tables_seen)
+        _walk_table(src, subtable, 0, path, src_size, entries, set(), dir_tables_seen, base_offset)
 
     if r_offset != 0:
         if r_offset == _PAD_SHORT:
             return
-        if r_offset % 4 != 0:
-            raise ValueError(f"directory right offset {r_offset} is not dword-aligned")
         sibling_offset = r_offset * 4
         if sibling_offset >= len(table):
             raise ValueError(f"right sibling offset {r_offset} exceeds table size")
-        _walk_table(src, table, sibling_offset, prefix, src_size, entries, visited, dir_tables_seen)
+        _walk_table(src, table, sibling_offset, prefix, src_size, entries, visited, dir_tables_seen, base_offset)
 
 
-def normalize_xdvdfs(source) -> FileTree:
-    """Parse a plain XDVDFS image into a FileTree."""
+def normalize_xdvdfs(source, *, base_offset: int = 0) -> FileTree:
+    """Parse an XDVDFS image into a FileTree.
+
+    ``base_offset`` shifts the descriptor, root table, and file payloads within a
+    larger dump (e.g. a retail XGD1 image whose game partition starts at a
+    non-zero embedded offset). The default ``0`` keeps plain XISO images
+    byte-for-byte unchanged.
+    """
+    if base_offset < 0:
+        raise ValueError(f"base_offset must be >= 0 (got {base_offset})")
+
     src = source if isinstance(source, ByteSource) else FileSource(source)
     src_size = src.size()
+    desc_offset = base_offset + _DESC_OFFSET
 
-    if src_size < _DESC_OFFSET + _SECTOR:
+    if src_size < desc_offset + _SECTOR:
         raise ValueError("descriptor exceeds source size")
 
     try:
-        desc = src.read_at(_DESC_OFFSET, _SECTOR)
+        desc = src.read_at(desc_offset, _SECTOR)
     except ValueError as exc:
         raise ValueError("descriptor exceeds source size") from exc
 
@@ -165,7 +190,7 @@ def normalize_xdvdfs(source) -> FileTree:
         raise ValueError("root directory size is invalid")
     if root_size % _SECTOR != 0:
         raise ValueError("root directory size is not sector-aligned")
-    root_offset = root_sector * _SECTOR
+    root_offset = base_offset + root_sector * _SECTOR
     if root_offset + root_size > src_size:
         raise ValueError("root directory table exceeds source size")
 
@@ -174,5 +199,5 @@ def normalize_xdvdfs(source) -> FileTree:
 
     root_table = src.read_at(root_offset, root_size)
     entries: list[FileEntry] = []
-    _walk_table(src, root_table, 0, "", src_size, entries, set(), {root_offset})
+    _walk_table(src, root_table, 0, "", src_size, entries, set(), {root_offset}, base_offset)
     return FileTree(source=src, format="xdvdfs", entries=tuple(entries))

@@ -30,6 +30,49 @@ TOOLS = {
 }
 
 
+def _make_minimal_xdvdfs(path: Path, *, base_offset: int = 0, odd_right_pointer: bool = False) -> None:
+    total_size = base_offset + 0x100000
+    data = bytearray(total_size)
+
+    desc = bytearray(0x800)
+    desc[: len(b"MICROSOFT*XBOX*MEDIA")] = b"MICROSOFT*XBOX*MEDIA"
+    desc[0x14 : 0x18] = struct.pack("<I", 0x22)
+    desc[0x18 : 0x1C] = struct.pack("<I", 0x800)
+    desc[0x7EC : 0x7EC + len(b"MICROSOFT*XBOX*MEDIA")] = b"MICROSOFT*XBOX*MEDIA"
+    data[base_offset + 0x10000 : base_offset + 0x10000 + 0x800] = desc
+
+    root_table = bytearray(0x800)
+    first_name = b"A" * 38
+    second_name = b"B"
+    first_size = 14 + len(first_name)
+    second_size = 14 + len(second_name)
+
+    first = bytearray(first_size)
+    struct.pack_into("<H", first, 0, 0)
+    struct.pack_into("<H", first, 2, 13 if odd_right_pointer else 0)
+    struct.pack_into("<I", first, 4, 0x80)
+    struct.pack_into("<I", first, 8, 64)
+    first[0x0C] = 0
+    first[0x0D] = len(first_name)
+    first[0x0E :] = first_name
+    root_table[: first_size] = first
+
+    second = bytearray(second_size)
+    struct.pack_into("<H", second, 0, 0)
+    struct.pack_into("<H", second, 2, 0)
+    struct.pack_into("<I", second, 4, 0x90)
+    struct.pack_into("<I", second, 8, 32)
+    second[0x0C] = 0
+    second[0x0D] = len(second_name)
+    second[0x0E :] = second_name
+    root_table[52 : 52 + second_size] = second
+
+    data[base_offset + 0x22 * 0x800 : base_offset + 0x22 * 0x800 + 0x800] = root_table
+    data[base_offset + 0x80 * 0x800 : base_offset + 0x80 * 0x800 + 64] = b"A" * 64
+    data[base_offset + 0x90 * 0x800 : base_offset + 0x90 * 0x800 + 32] = b"B" * 32
+    path.write_bytes(bytes(data))
+
+
 def _checks(normalize_fn=normalize_xdvdfs, fixture=IMAGE):
     return run_checks(
         normalize_fn,
@@ -51,6 +94,28 @@ def test_sniff():
     """Verify sniff detects XDVDFS images by the descriptor magic."""
     assert sniff(FileSource(IMAGE))
     assert not sniff(FileSource(ROOT / "fixtures" / "toy" / "toy.bin"))
+
+
+def test_embedded_descriptor_base_offset_is_supported(tmp_path):
+    image = tmp_path / "embedded.xiso"
+    base_offset = 0x2000
+    _make_minimal_xdvdfs(image, base_offset=base_offset, odd_right_pointer=True)
+
+    assert sniff(FileSource(image), base_offset=base_offset)
+    assert not sniff(FileSource(image))
+
+    tree = normalize_xdvdfs(image, base_offset=base_offset)
+    assert sorted(e.path for e in tree.entries) == ["A" * 38, "B"]
+    assert tree.entries[0].offset == base_offset + 0x80 * 0x800
+    assert tree.entries[1].offset == base_offset + 0x90 * 0x800
+
+
+def test_odd_lcrs_pointer_counts_are_valid(tmp_path):
+    image = tmp_path / "odd-pointer.xiso"
+    _make_minimal_xdvdfs(image, odd_right_pointer=True)
+
+    tree = normalize_xdvdfs(image)
+    assert sorted(e.path for e in tree.entries) == ["A" * 38, "B"]
 
 
 def test_returns_filetree():
