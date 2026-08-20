@@ -244,6 +244,55 @@ and the two-key finding in
       2nd positive it has waited on since 2026-08-14; PoP + KotOR are its
       same-platform near-miss negatives).
 
+- [ ] **`chd` two bugs — DVD-type CHDs crash, CD-type CHDs lose their cue
+      (consumer request from Stratum, 2026-08-20; CHEAP, ~8,900 corpus
+      titles):** an operator-authorized inventory of `F:\game` found PS1
+      (6,089 titles) and PSP (2,856) both stored as `.chd`, and **neither
+      normalizes today**. Two independent causes, both small.
+      **(1) DVD-type CHDs.** `normalize_chd` always shells
+      `chdman extractcd`. PSP CHDs are DVD-type (`chdman info` reports
+      `Metadata: Tag='DVD '`, 2048-byte unit size, zstd — no CD track
+      metadata), and `extractcd` aborts on them: exit `3221226505`,
+      `libc++abi: terminating due to uncaught exception of type
+      std::nullptr_t`. Dispatch on the metadata tag — `DVD ` → `extractdvd`
+      (or `extractraw`), CD-type → `extractcd`. The DVD output is a plain
+      2048-byte image that feeds `iso9660` directly with no further
+      composition. **(2) The extracted cue is misnamed.** For CD-type CHDs
+      the call passes `-o <tmp>/extracted` with no extension, so chdman writes
+      the cue as `extracted` (122 bytes, **no suffix**) alongside
+      `extracted.bin`. `ps1-bincue` then resolves the sibling as
+      `extracted.cue`, does not find it, and raises
+      `no .cue sibling at ...\extracted.cue` — so a PS1 CHD can never compose
+      past the chd layer. Passing `-o <tmp>/extracted.cue` fixes it;
+      **verified end-to-end 2026-08-20** on retail PS1 CHDs
+      (`chd → ps1-bincue → iso9660 → Stratum scan` walks and scans).
+      Note `_TempFileSource` also exposes no path and is not a `FileSource`,
+      so even a correctly-named cue is only reachable because `ps1-bincue`
+      accepts a path; consider exposing the inner path so composition does not
+      depend on that. **Residual scope limit, not a bug:** `ps1-bincue`
+      refuses multi-track discs by design, which is 13 of 40 sampled PS1
+      titles (~32%), capping PS1 reach near 4,100 of 6,089. Widening that is
+      a separate decision, not part of this fix.
+
+- [ ] **`zip` container normalizer — or an operator pre-extraction path
+      (consumer request from Stratum, 2026-08-20; BIGGEST REACH, 14,643
+      corpus titles / 62% of the disc corpus):** the same `F:\game` inventory
+      found that everything except PS1 and PSP is stored **zipped**: PS2
+      (5,623 → `.iso` or `.bin`+`.cue`), Saturn (2,413 → `.bin`+`.cue`), 3DS
+      (2,149 → `.3ds`), GameCube (2,019 → `.rvz`), Dreamcast (1,509 →
+      `.bin`+`.cue`), Wii (554 → `.rvz`), Xbox (376 → `.iso`). Substratum has
+      no zip layer, so **Stratum's Unit 4 currently reaches none of them.**
+      Decide the shape before building: every zip sampled is **DEFLATE, not
+      STORED** (115/115 members across seven platforms), so this cannot be a
+      cheap offset map — deflate is not seekable, and a zip layer must spool
+      to a temp file the way `chd` already does. That makes a full sweep
+      extraction-dominated in both time and disk. Given these are archival
+      storage copies, an **operator pre-extraction path** may genuinely beat a
+      normalizer; record the choice either way. Multi-file members
+      (`.bin`+`.cue`, multi-track Saturn/DC sets reaching 90 members in one
+      archive) mean the layer must return a `FileTree`, not a single
+      `ByteView`.
+
 - [ ] **3DS RomFS (IVFC) filesystem normalizer (consumer request from
       Stratum, 2026-08-20):** the 3DS chain currently bottoms out at opaque
       regions — `3ds-cci` → NCCH → `exefs.bin` / `romfs.bin` — so no
@@ -271,21 +320,32 @@ and the two-key finding in
       media. Cheap to settle: compare the TMD chunk records and computed vs.
       declared SHA-256 against a `ctrtool` listing of the same file.
 
-- [~] **DROPPED 2026-08-20 by operator decision — `F:\game` corpus formats
-      (RVZ / WBFS / GCZ / NKit).** Four normalizer units, each needing its own
-      differential oracle, to read containers that exist only because
-      emulators wanted them. Stratum's Unit 4 instead sweeps what already
-      normalizes natively — PS1 (`ps1-bincue`, `chd`), PS2 (`iso9660`), PSP
-      (`iso9660`, `cso`), Xbox (`xdvdfs`, once the ask above lands), and
-      Dreamcast (`saturn-dc-raw`). Kept here rather than deleted because the
-      **consequence is durable**: GC/Wii titles held in these containers drop
-      out of the census, which under-ranks Nintendo's formats (Yaz0, U8) and
-      over-ranks the CRI family, so Stratum's run manifest must record the
-      platform/image-format scope of every sweep. Reopening needs no code —
-      operator pre-conversion of a subset to plain `.iso` was always an
-      option, and GC/Wii titles already stored as plain `.iso` sweep fine
-      today via `gc-fst` and the Wii chain. The original ask follows, kept
-      verbatim for the oracle choices it records.
+- [~] **RVZ / WBFS / GCZ / NKit — dropped 2026-08-20, then the premise was
+      corrected the same day. LIVE DECISION, not a settled drop.** The drop
+      was made on the belief that everything else in `F:\game` already
+      normalized natively, leaving RVZ as the lone emulator-format holdout.
+      **That belief was wrong.** The operator-authorized inventory (same day)
+      found the corpus is ~23,600 disc titles of which **none** normalize
+      today: 14,643 are zipped, 8,945 are CHDs hitting the two bugs above.
+      The honest comparison is therefore:
+      | Work | Unlocks |
+      |---|---|
+      | `chd` two bugs | ~8,900 titles (one fix already verified) |
+      | `zip` layer | 14,643 titles across five platforms |
+      | **RVZ** | **2,573 titles — but 100% of GameCube and Wii** |
+      RVZ is one unit for a comparable share of the corpus to the others, and
+      it is the *only* route to two entire platforms — the ones carrying the
+      Nintendo formats (Yaz0, U8) whose prevalence Stratum most needs to rank.
+      Left dropped pending an explicit re-decision rather than silently
+      reinstated; whoever schedules Unit 4's prerequisites should settle it
+      then. **The durable consequence stands either way:** while GC/Wii are
+      out, the census under-ranks Nintendo formats and over-ranks the CRI
+      family, so Stratum's run manifest must record each sweep's
+      platform/image-format scope. Reopening needs no code — operator
+      pre-conversion to plain `.iso` was always an option, and GC/Wii titles
+      already stored as plain `.iso` sweep fine via `gc-fst` and the Wii
+      chain. The original ask follows, kept verbatim for the oracle choices it
+      records.
 
 - [ ] **`F:\game` corpus formats — RVZ / WBFS (+ GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's
