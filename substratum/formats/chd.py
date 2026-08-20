@@ -14,6 +14,7 @@ Runtime is stdlib-only per DESIGN.md § 4.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -102,6 +103,63 @@ def sniff(source: ByteSource) -> bool:
     return source.read_at(0, 8) == b"MComprHD"
 
 
+def _chd_tag(chd_path: Path) -> str | None:
+    """Return the CHD metadata tag, if the tool exposes one.
+
+    Malformed or unsupported CHDs may fail the metadata query; in that case,
+    fall back to the safe CD extraction path instead of failing early.
+    """
+    try:
+        info = subprocess.run(
+            [str(_chdman_exe()), "info", "-i", str(chd_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=_CHDMAN_TIMEOUT_SECONDS,
+        )
+    except (subprocess.CalledProcessError, OSError, TimeoutError):
+        return None
+    for line in info.stdout.splitlines():
+        if "Metadata:" not in line:
+            continue
+        match = re.search(r"Tag='([^']*)'", line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _chd_extract_command(chd_path: Path, tmp_dir: Path) -> tuple[list[str], Path]:
+    """Dispatch CHD extraction by media tag and return the resulting binary path."""
+    tag = _chd_tag(chd_path)
+    if tag is not None and tag.strip() == "DVD":
+        data_file = tmp_dir / "extracted.bin"
+        return (
+            [
+                str(_chdman_exe()),
+                "extractdvd",
+                "-i",
+                str(chd_path),
+                "-o",
+                str(data_file),
+            ],
+            data_file,
+        )
+
+    cue_file = tmp_dir / "extracted.cue"
+    data_file = cue_file.with_suffix(".bin")
+    return (
+        [
+            str(_chdman_exe()),
+            "extractcd",
+            "-i",
+            str(chd_path),
+            "-o",
+            str(cue_file),
+        ],
+        data_file,
+    )
+
+
 def normalize_chd(source) -> ByteView:
     """Decompress a CHD to a ByteView of the raw disc image.
 
@@ -132,25 +190,18 @@ def normalize_chd(source) -> ByteView:
             Path(tmp_chd.name).unlink(missing_ok=True)
             raise
 
-    # --- decompress with chdman extractcd ---
     tmp_dir = Path(tempfile.mkdtemp(prefix="substratum-chd-"))
-    out_base = tmp_dir / "extracted"
 
     try:
+        command, data_file = _chd_extract_command(chd_path, tmp_dir)
         subprocess.run(
-            [
-                str(_chdman_exe()),
-                "extractcd",
-                "-i", str(chd_path),
-                "-o", str(out_base),
-            ],
+            command,
             capture_output=True,
             check=True,
             timeout=_CHDMAN_TIMEOUT_SECONDS,
         )
-        data_file = Path(str(out_base) + ".bin")
         if not data_file.exists():
-            raise RuntimeError(f"chdman extractcd did not produce {data_file}")
+            raise RuntimeError(f"chdman did not produce {data_file}")
         return ByteView(source=_TempFileSource(data_file, tmp_dir), format="chd")
     except BaseException:
         # Clean up temp dir on failure

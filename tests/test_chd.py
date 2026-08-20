@@ -12,6 +12,7 @@ parser under test).  Reference bytes are the iso reference bytes
 
 import gc
 import json
+import subprocess
 import weakref
 from pathlib import Path
 
@@ -110,6 +111,43 @@ def test_decompressed_data_matches_original():
             fh.seek(16 * 2048)
             pvd_iso = fh.read(2048)
         assert pvd_chd == pvd_iso
+    finally:
+        view.source.close()
+
+
+@pytest.mark.parametrize(
+    ("tag", "command"),
+    [("CD  ", "extractcd"), ("DVD ", "extractdvd")],
+)
+def test_chd_dispatches_by_media_tag(monkeypatch, tmp_path, tag, command):
+    chd_path = tmp_path / "game.chd"
+    chd_path.write_bytes(b"MComprHD")
+    output_path = tmp_path / "out"
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        if cmd[1] == "info":
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"Metadata: Tag='{tag}'\n", stderr="")
+        if cmd[1] == command:
+            out = Path(cmd[cmd.index("-o") + 1])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            if command == "extractcd":
+                out.write_text("FILE \"extracted.bin\" BINARY\n", encoding="utf-8")
+                out.with_suffix(".bin").write_bytes(b"raw-image")
+            else:
+                out.write_bytes(b"raw-image")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected chdman command: {cmd}")
+
+    monkeypatch.setattr(chd_module, "_chdman_exe", lambda: tmp_path / "chdman.exe")
+    monkeypatch.setattr(chd_module.subprocess, "run", fake_run)
+
+    view = chd_module.normalize_chd(chd_path)
+    try:
+        assert seen["cmd"][1] == command
+        assert Path(seen["cmd"][seen["cmd"].index("-o") + 1]).suffix == (".cue" if command == "extractcd" else ".bin")
+        assert view.source.read_at(0, len(b"raw-image")) == b"raw-image"
     finally:
         view.source.close()
 
