@@ -271,6 +271,22 @@ and the two-key finding in
       media. Cheap to settle: compare the TMD chunk records and computed vs.
       declared SHA-256 against a `ctrtool` listing of the same file.
 
+- [~] **DROPPED 2026-08-20 by operator decision — `F:\game` corpus formats
+      (RVZ / WBFS / GCZ / NKit).** Four normalizer units, each needing its own
+      differential oracle, to read containers that exist only because
+      emulators wanted them. Stratum's Unit 4 instead sweeps what already
+      normalizes natively — PS1 (`ps1-bincue`, `chd`), PS2 (`iso9660`), PSP
+      (`iso9660`, `cso`), Xbox (`xdvdfs`, once the ask above lands), and
+      Dreamcast (`saturn-dc-raw`). Kept here rather than deleted because the
+      **consequence is durable**: GC/Wii titles held in these containers drop
+      out of the census, which under-ranks Nintendo's formats (Yaz0, U8) and
+      over-ranks the CRI family, so Stratum's run manifest must record the
+      platform/image-format scope of every sweep. Reopening needs no code —
+      operator pre-conversion of a subset to plain `.iso` was always an
+      option, and GC/Wii titles already stored as plain `.iso` sweep fine
+      today via `gc-fst` and the Wii chain. The original ask follows, kept
+      verbatim for the oracle choices it records.
+
 - [ ] **`F:\game` corpus formats — RVZ / WBFS (+ GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's
       eventual operator-run corpus sweep (its BACKLOG Unit 4) targets
