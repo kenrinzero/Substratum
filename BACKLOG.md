@@ -208,6 +208,69 @@ and the two-key finding in
       Stratum's `cri.adx` 2nd positive (its measurement is Stratum's next
       session) and Quarry's spare-ADX enumeration.
 
+- [ ] **`xdvdfs` cannot read a retail Xbox disc — two defects (consumer
+      request from Stratum, 2026-08-20; HIGH — it is the only thing between
+      Stratum and its `bink.video` 2nd positive):** three staged retail XGD1
+      images (Jade Empire JP, Prince of Persia: The Sands of Time USA, KotOR
+      USA Rev 1 — each exactly 7,825,162,240 bytes) fail to normalize, for two
+      independent reasons. **(1) No partition base offset.** `sniff` and
+      `normalize_xdvdfs` expect the `MICROSOFT*XBOX*MEDIA` descriptor at
+      absolute `0x10000`. A redump XGD1 image carries a DVD-Video decoy
+      partition first, and the game partition begins at `0x18300000` — the
+      descriptor sits at `0x18310000`, verified byte-exactly on all three.
+      Today the registry sniffs such an image as `iso9660` and returns the
+      **decoy**: KotOR normalizes to 6 files (`.vob`/`.ifo`/`.bup`) and a
+      Stratum sweep over it is silently, plausibly empty — the worst failure
+      shape for a census. Fix shape is the one already proven for GD-ROM:
+      `normalize_xdvdfs(source, *, base_offset=0)` (default 0 keeps every
+      existing image byte-for-byte unchanged), mirroring
+      `normalize_iso9660(source, *, lba_base=0)`. **(2) Sibling offsets are
+      misread.** XDVDFS directory-entry left/right sub-tree offsets at `0x00`
+      and `0x02` are counts of **4-byte units**, not byte offsets;
+      `_walk_table` treats them as byte offsets and additionally requires
+      `l_offset % 4 == 0`, so a real disc dies on the first odd sibling
+      (`directory left offset 6 is not dword-aligned`). Confirmed by an
+      independent read-only probe: multiplying by 4 walks all three discs to
+      coherent trees — 3,800 / 171 / 15,545 files with entirely plausible
+      extension profiles, and Jade Empire's 218 `movies/*.bik` each satisfy
+      Bink's `declared_size + 8 == entry_size` exactly (a 32-bit exact match
+      on independently-located files is not chance). **Why this survived a
+      GREEN unit:** the differential is "structural self-consistency" and
+      NORMALIZERS.md records "no retail fixture needed for this unit", so the
+      seedtool fixture and the parser encode the *same* wrong convention and
+      agree with each other. This unit needs a **retail anchor** and an
+      independent oracle (`extract-xiso` or `xdvdfs-rs` listing) before it can
+      be called GREEN again. Unblocks Stratum `bink.video` (Jade Empire = the
+      2nd positive it has waited on since 2026-08-14; PoP + KotOR are its
+      same-platform near-miss negatives).
+
+- [ ] **3DS RomFS (IVFC) filesystem normalizer (consumer request from
+      Stratum, 2026-08-20):** the 3DS chain currently bottoms out at opaque
+      regions — `3ds-cci` → NCCH → `exefs.bin` / `romfs.bin` — so no
+      file-level detector can ever see inside a 3DS title. Measured
+      2026-08-20 on the staged set: Cubic Ninja composes cleanly to
+      `romfs.bin` (84,975,616 bytes, one blob) and a full Stratum
+      `production_registry()` sweep returns **0 hits by construction**, not by
+      absence. Six staged 3DS/CIA titles are therefore worth nothing to the
+      census until RomFS is walked. RomFS is an IVFC level-3 hash-tree
+      container with a conventional directory/file metadata table; the
+      structural work is a normalizer unit of ordinary size, and the oracle
+      is `ctrtool`/`3dstool` listings (already vendored tooling for the keyed
+      work). Records the dependency durably; not urgent while Stratum's open
+      slots are Bink and Ogg.
+
+- [ ] **CIA content-chunk hash mismatch on two staged eShop titles
+      (investigation, 2026-08-20):** `BoxBoxBoy! (USA) (eShop).cia` and
+      `Mini Sports Collection (USA) (eShop).cia` both fail
+      `normalize(format="cia")` with `content chunk content.0000.ncch hash
+      mismatch - wrong slice or corrupt`. `Biohazard - The Mercenaries 3D
+      (Japan).cia` normalizes fine from the same drop, so the CIA path is not
+      globally broken. Determine which it is — a slicing bug on some content
+      layout (e.g. index/offset handling when the chunk record set differs),
+      or two genuinely bad dumps — before treating either title as usable
+      media. Cheap to settle: compare the TMD chunk records and computed vs.
+      declared SHA-256 against a `ctrtool` listing of the same file.
+
 - [ ] **`F:\game` corpus formats — RVZ / WBFS (+ GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's
       eventual operator-run corpus sweep (its BACKLOG Unit 4) targets
