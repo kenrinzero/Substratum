@@ -208,41 +208,19 @@ and the two-key finding in
       Stratum's `cri.adx` 2nd positive (its measurement is Stratum's next
       session) and Quarry's spare-ADX enumeration.
 
-- [ ] **`xdvdfs` cannot read a retail Xbox disc — two defects (consumer
-      request from Stratum, 2026-08-20; HIGH — it is the only thing between
-      Stratum and its `bink.video` 2nd positive):** three staged retail XGD1
-      images (Jade Empire JP, Prince of Persia: The Sands of Time USA, KotOR
-      USA Rev 1 — each exactly 7,825,162,240 bytes) fail to normalize, for two
-      independent reasons. **(1) No partition base offset.** `sniff` and
-      `normalize_xdvdfs` expect the `MICROSOFT*XBOX*MEDIA` descriptor at
-      absolute `0x10000`. A redump XGD1 image carries a DVD-Video decoy
-      partition first, and the game partition begins at `0x18300000` — the
-      descriptor sits at `0x18310000`, verified byte-exactly on all three.
-      Today the registry sniffs such an image as `iso9660` and returns the
-      **decoy**: KotOR normalizes to 6 files (`.vob`/`.ifo`/`.bup`) and a
-      Stratum sweep over it is silently, plausibly empty — the worst failure
-      shape for a census. Fix shape is the one already proven for GD-ROM:
-      `normalize_xdvdfs(source, *, base_offset=0)` (default 0 keeps every
-      existing image byte-for-byte unchanged), mirroring
-      `normalize_iso9660(source, *, lba_base=0)`. **(2) Sibling offsets are
-      misread.** XDVDFS directory-entry left/right sub-tree offsets at `0x00`
-      and `0x02` are counts of **4-byte units**, not byte offsets;
-      `_walk_table` treats them as byte offsets and additionally requires
-      `l_offset % 4 == 0`, so a real disc dies on the first odd sibling
-      (`directory left offset 6 is not dword-aligned`). Confirmed by an
-      independent read-only probe: multiplying by 4 walks all three discs to
-      coherent trees — 3,800 / 171 / 15,545 files with entirely plausible
-      extension profiles, and Jade Empire's 218 `movies/*.bik` each satisfy
-      Bink's `declared_size + 8 == entry_size` exactly (a 32-bit exact match
-      on independently-located files is not chance). **Why this survived a
-      GREEN unit:** the differential is "structural self-consistency" and
-      NORMALIZERS.md records "no retail fixture needed for this unit", so the
-      seedtool fixture and the parser encode the *same* wrong convention and
-      agree with each other. This unit needs a **retail anchor** and an
-      independent oracle (`extract-xiso` or `xdvdfs-rs` listing) before it can
-      be called GREEN again. Unblocks Stratum `bink.video` (Jade Empire = the
-      2nd positive it has waited on since 2026-08-14; PoP + KotOR are its
-      same-platform near-miss negatives).
+- [x] **`xdvdfs` reads a real Xbox disc — retail proof completed on Jade
+      Empire (consumer request from Stratum, 2026-08-20; resolved 2026-08-20):**
+      the unit is now proven against the independent `xdvdfs-rs 0.9.0`
+      oracle on a real XGD1 image (`fixtures/_local/Jade Empire (Japan).iso`),
+      with the descriptor at `0x18310000` and the game partition base at
+      `0x18300000` (`base_offset=0x18300000`). The parser matches the oracle's
+      tree and extracted file bytes, including the embedded non-zero base
+      offset and the 4-byte dword LCRS counts. The row was reclassified to
+      **GREEN** only after the independent comparison and the pinned oracle
+      version were recorded; the real disc and extracted references remain
+      local-only and are never committed to git. This unblocks the same
+      `bink.video` path the backlog called out, without broadening beyond the
+      `xdvdfs` normalizer scope.
 
 - [ ] **`chd` two bugs — DVD-type CHDs crash, CD-type CHDs lose their cue
       (consumer request from Stratum, 2026-08-20; CHEAP, ~8,900 corpus

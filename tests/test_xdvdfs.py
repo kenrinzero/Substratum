@@ -8,7 +8,9 @@ fixture uses a synthetic tier-1 image and no external differential tooling.
 from __future__ import annotations
 
 import json
+import os
 import struct
+import subprocess
 from pathlib import Path
 
 import jsonschema
@@ -25,9 +27,25 @@ IMAGE = FIXTURE / "game.xiso"
 REFERENCE = FIXTURE / "reference"
 
 TOOLS = {
-    "self-consistency": "structural-proof",
+    "differential": "xdvdfs-rs 0.9.0",
     "generator": "make_xdvdfs_fixture v1",
+    "self-consistency": "structural-proof",
 }
+
+RETAIL_IMAGE = ROOT / "fixtures" / "_local" / "Jade Empire (Japan).iso"
+RETAIL_BASE_OFFSET = 0x18300000
+
+
+def _xdvdfs_exe() -> Path | None:
+    env_path = os.environ.get("XDVDFS_EXE")
+    if env_path:
+        candidate = Path(env_path)
+        if candidate.exists():
+            return candidate
+    candidate = Path(r"C:\Users\kenrin\Downloads\_tools\xdvdfs-rs\target\release\xdvdfs.exe")
+    if candidate.exists():
+        return candidate
+    return None
 
 
 def _make_minimal_xdvdfs(path: Path, *, base_offset: int = 0, odd_right_pointer: bool = False) -> None:
@@ -108,6 +126,36 @@ def test_embedded_descriptor_base_offset_is_supported(tmp_path):
     assert sorted(e.path for e in tree.entries) == ["A" * 38, "B"]
     assert tree.entries[0].offset == base_offset + 0x80 * 0x800
     assert tree.entries[1].offset == base_offset + 0x90 * 0x800
+
+
+@pytest.mark.skipif(
+    not RETAIL_IMAGE.exists() or _xdvdfs_exe() is None,
+    reason="retail jig and xdvdfs-rs oracle must be staged locally",
+)
+def test_retail_jade_empire_matches_xdvdfs_oracle(tmp_path):
+    oracle_bin = _xdvdfs_exe()
+    assert oracle_bin is not None
+    extract_dir = tmp_path / "oracle"
+    subprocess.run(
+        [str(oracle_bin), "unpack", str(RETAIL_IMAGE), str(extract_dir)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    oracle = {
+        p.relative_to(extract_dir).as_posix(): p.stat().st_size
+        for p in extract_dir.rglob("*")
+        if p.is_file()
+    }
+    tree = normalize_xdvdfs(RETAIL_IMAGE, base_offset=RETAIL_BASE_OFFSET)
+    assert {e.path: e.size for e in tree.files()} == oracle
+
+    for rel in ["Build.ini", "default.xbe", "sound/gui.xwb", "data/a010_01-a.rim"]:
+        assert rel in oracle
+        want = (extract_dir / rel.replace("/", os.sep)).read_bytes()
+        got = tree.read(next(e for e in tree.files() if e.path == rel))
+        assert got == want
 
 
 def test_odd_lcrs_pointer_counts_are_valid(tmp_path):
