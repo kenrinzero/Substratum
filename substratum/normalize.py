@@ -64,6 +64,7 @@ from substratum.formats.wii_u8_arc import (
 )
 from substratum.formats.rvz import normalize_rvz, sniff as sniff_rvz
 from substratum.formats.gcz import normalize_gcz, sniff as sniff_gcz
+from substratum.formats.wbfs import normalize_wbfs, sniff as sniff_wbfs
 from substratum.formats.xdvdfs import normalize_xdvdfs, sniff as sniff_xdvdfs
 from substratum.formats.zip import normalize_zip, sniff as sniff_zip
 
@@ -112,6 +113,9 @@ _FORMATS = (
     # stays beside rvz and ahead of gc-fst so both Dolphin containers sit
     # before any raw-image sniffer that might see a decoded/odd cousin.
     _Format("gcz", sniff_gcz, normalize_gcz),
+    # WBFS magic ("WBFS" at 0) is distinct from every disc-header format, but
+    # it stays in the Dolphin-container block ahead of the raw-image sniffers.
+    _Format("wbfs", sniff_wbfs, normalize_wbfs),
     _Format("gc-fst", sniff_gc_fst, normalize_gc_fst),
     _Format("wii-u8-arc", sniff_wii_u8_arc, normalize_wii_u8_arc),
     _Format("xdvdfs", sniff_xdvdfs, normalize_xdvdfs),

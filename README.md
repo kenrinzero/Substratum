@@ -19,11 +19,11 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.24 (2026-08-21): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and twenty-one real
+Version 0.0.25 (2026-08-21): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and twenty-two real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
-`saturn-dc-raw`, `cso`, `zip`, `rvz`, `gcz`, `wii-u8-arc`, `xdvdfs`,
-`3ds-cci`, `3ds-ncch`, `3ds-romfs`,
+`saturn-dc-raw`, `cso`, `zip`, `rvz`, `gcz`, `wbfs`, `wii-u8-arc`,
+`xdvdfs`, `3ds-cci`, `3ds-ncch`, `3ds-romfs`,
 the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`),
 `3ds-ncch-enc`, `cia`, `3ds-ncch-enc-seed`, and `3ds-ncch-enc-96`. The
 3DS encrypted-NCCH family is complete for all available anchors: standard
@@ -41,6 +41,7 @@ are validated during the streaming extract, and its expected manifest is
 authored from pinned 7-Zip's independent listing and extraction.
 `rvz` decompresses Dolphin's RVZ block stream (`DolphinTool 2606a`, `zstd:5`, `131072`-byte blocks) into a `ByteView` of the raw GC/Wii ISO — `GT Cube` (GC, 661 `gc-fst` files) and `Ghost Squad` (Wii, 2 partitions) proven via `wit` second reader; the full `zip → rvz → gc-fst` chain now covers the 2,573-title GC+Wii corpus.
 `gcz` decodes Dolphin's legacy CompressedBlob GCZ (magic `0xB10BC001`) through the same vendored DolphinTool, with the container differential provided by a spec-derived pure-Python block decoder in the tests (wit cannot read GCZ); a full-disc `iso → gcz → decode` round-trip is sha256-identical, and an operator-staged mislabeled `.gcz` (a compacted raw GC ISO) is kept as the sniff/dispatch regression that must route to `gc-fst`.
+`wbfs` reconstructs the scrubbed Wii container through wit (`wit copy`), zero-filling scrubbed clusters to the canonical full-size image — the independent differential is a spec-derived wlba-LUT decoder in the tests (DolphinTool's WBFS decode is mangled and unusable as an oracle; recorded), proven sha256-identical to wit over the entire 4.7 GB anchor.
 `3ds-romfs` walks the decrypted IVFC-wrapped RomFS layer with the
 complete hash tree verified eagerly (master <- level0 <- level1 <- data),
 proven on staged retail media through the full cci → ncch → romfs

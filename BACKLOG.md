@@ -7,9 +7,10 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.24** is clean (the `gcz` container landed 2026-08-21 over a
-shared-DolphinTool refactor, after `rvz` on 0.0.23, `chd` retail closure on
-0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **21 normalizers** are
+Version **0.0.25** is clean (the `wbfs` container landed 2026-08-21 via
+wit + a spec-decoder differential, after `gcz` on 0.0.24 over a
+shared-DolphinTool refactor, `rvz` on 0.0.23, `chd` retail closure on
+0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **22 normalizers** are
 GREEN:
 the keyless/decrypted floor, the complete Wii chain, the CIA container, the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
@@ -400,6 +401,21 @@ and the two-key finding in
       `.gcz` as the sniff/dispatch regression (a compacted raw GC ISO —
       see the follow-on item below). `F:\game` holds no GCZ titles
       (GC/Wii are `.rvz`): this unit is emulator-family completeness.
+
+- [x] **`wbfs` — Wii USB-loader scrubbed container (F:\game follow-on;
+      DONE 2026-08-21, 0.0.25):** `substratum/formats/wbfs.py` returns a
+      `ByteView` over wit's canonical full-size reconstruction
+      (`wit copy`, 4,699,979,776 bytes, zero-filled scrubbed clusters);
+      the spool source moved to shared `substratum/formats/_spool.py`.
+      **Load-bearing finding: DolphinTool's WBFS decode is mangled**
+      (2x disc size, container header embedded at 0x200000, partition
+      bytes disagree with wit) — wit is the only trustworthy decoder, and
+      the container differential is a **spec-derived libwbfs-layout LUT
+      decoder in `tests/test_wbfs.py`**, sha256-identical to wit over the
+      entire 4.7 GB anchor (streamed). Anchor: operator-staged
+      `Ghost Squad (Europe).wbfs` (scrubbed — no update partition; the
+      JP `.rvz` anchor is the same title unscrubbed). `nkit` remains as
+      the last named follow-on.
 
 - [ ] **`F:\game` corpus formats — WBFS / GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples; SAMPLES STAGED
