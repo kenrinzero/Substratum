@@ -16,6 +16,7 @@ extraction — normalize itself handles 0-byte members.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import struct
 import subprocess
@@ -24,7 +25,8 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from substratum.contract import FileEntry, FileSource, FileTree
+from substratum import normalize as dispatch
+from substratum.contract import FileEntry, FileSource, FileTree, SliceSource
 from substratum.formats.three_ds_romfs import normalize_3ds_romfs, sniff
 from substratum.verify import run_checks
 from tests.assertions import assert_structural_failure
@@ -78,7 +80,6 @@ def test_3ds_romfs_is_green():
 
 
 def test_sniff():
-    from substratum.contract import SliceSource
     assert sniff(FileSource(REGION))
     assert not sniff(FileSource(ROOT / "fixtures" / "toy" / "toy.bin"))
     assert not sniff(SliceSource(FileSource(REGION), 0, 0x40))
@@ -119,7 +120,6 @@ def test_synthetic_tree_matches_ctrtool_extraction(tmp_path):
     ctrtool's own extraction of the level-3 slice."""
     if not CTRTOOL.exists():
         pytest.skip("vendored ctrtool absent")
-    import importlib.util
     spec = importlib.util.spec_from_file_location(
         "make_3ds_romfs_fixture", ROOT / "seedtools" / "make_3ds_romfs_fixture.py"
     )
@@ -155,9 +155,6 @@ def test_synthetic_tree_matches_ctrtool_extraction(tmp_path):
 def test_retail_cubic_ninja_matches_ctrtool(tmp_path):
     """Full composition proof on real media: cci -> ncch -> romfs region,
     compared against ctrtool's listing/extraction (540 files)."""
-    from substratum import normalize as dispatch
-    from substratum.contract import SliceSource
-
     cci = dispatch(RETAIL_CCI)
     p0 = next(e for e in cci.files() if e.path == "partition0.cxi")
     ncch = dispatch(cci.open(p0))
