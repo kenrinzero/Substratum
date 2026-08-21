@@ -19,11 +19,11 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.20 (2026-08-21): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and eighteen real
+Version 0.0.21 (2026-08-21): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and nineteen real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `cso`, `zip`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`,
-`3ds-ncch`,
+`3ds-ncch`, `3ds-romfs`,
 the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`),
 `3ds-ncch-enc`, `cia`, `3ds-ncch-enc-seed`, and `3ds-ncch-enc-96`. The
 3DS encrypted-NCCH family is complete for all available anchors: standard
@@ -39,6 +39,10 @@ one-file decompression spool (the `chd` pattern) and returns a FileTree
 whose byte ranges point into it — per-member CRC-32 and inflated sizes
 are validated during the streaming extract, and its expected manifest is
 authored from pinned 7-Zip's independent listing and extraction.
+`3ds-romfs` walks the decrypted IVFC-wrapped RomFS layer with the
+complete hash tree verified eagerly (master <- level0 <- level1 <- data),
+proven on staged retail media through the full cci → ncch → romfs
+composition against ctrtool's own extraction.
 `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
 traversal-capable path components; ISO9660 also refuses directory records
 that overrun an extent or logical block. Its real-pressing proof is the

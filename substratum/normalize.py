@@ -30,6 +30,10 @@ from substratum.formats.three_ds_ncch import (
     normalize_3ds_ncch,
     sniff as sniff_3ds_ncch,
 )
+from substratum.formats.three_ds_romfs import (
+    normalize_3ds_romfs,
+    sniff as sniff_3ds_romfs,
+)
 from substratum.formats.three_ds_ncch_enc import (
     normalize_3ds_ncch_enc,
     sniff as sniff_3ds_ncch_enc,
@@ -94,6 +98,7 @@ _FORMATS = (
     # the encrypted (standard-crypto) form and routes it to decryption.
     _Format("3ds-ncch-enc", sniff_3ds_ncch_enc, normalize_3ds_ncch_enc),
     _Format("3ds-ncch", sniff_3ds_ncch, normalize_3ds_ncch),
+    _Format("3ds-romfs", sniff_3ds_romfs, normalize_3ds_romfs),
     _Format("wii-disc", sniff_wii_disc, normalize_wii_disc),
     _Format("wii-partition", sniff_wii_partition, normalize_wii_partition),
     _Format("wii-fst", sniff_wii_fst, normalize_wii_fst),

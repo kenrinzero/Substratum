@@ -7,7 +7,7 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.20** is clean (the `zip` container layer landed 2026-08-21). **18 normalizers** are GREEN:
+Version **0.0.21** is clean (the `3ds-romfs` layer landed 2026-08-21, a day after `zip`). **19 normalizers** are GREEN:
 the keyless/decrypted floor, the complete Wii chain, the CIA container, and the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
 no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
@@ -294,20 +294,25 @@ and the two-key finding in
       extraction (two-party rule). Retail anchor not yet staged — the
       consumer sweep will exercise real corpus zips directly.
 
-- [ ] **3DS RomFS (IVFC) filesystem normalizer (consumer request from
-      Stratum, 2026-08-20):** the 3DS chain currently bottoms out at opaque
-      regions — `3ds-cci` → NCCH → `exefs.bin` / `romfs.bin` — so no
-      file-level detector can ever see inside a 3DS title. Measured
+- [x] **3DS RomFS (IVFC) filesystem normalizer — BUILT (consumer request from
+      Stratum, 2026-08-20; resolved 2026-08-21):** the 3DS chain previously bottomed
+      out at opaque regions — `3ds-cci` → NCCH → `exefs.bin` / `romfs.bin` — so no
+      file-level detector could ever see inside a 3DS title. Measured
       2026-08-20 on the staged set: Cubic Ninja composes cleanly to
       `romfs.bin` (84,975,616 bytes, one blob) and a full Stratum
       `production_registry()` sweep returns **0 hits by construction**, not by
-      absence. Six staged 3DS/CIA titles are therefore worth nothing to the
-      census until RomFS is walked. RomFS is an IVFC level-3 hash-tree
-      container with a conventional directory/file metadata table; the
-      structural work is a normalizer unit of ordinary size, and the oracle
-      is `ctrtool`/`3dstool` listings (already vendored tooling for the keyed
-      work). Records the dependency durably; not urgent while Stratum's open
-      slots are Bink and Ogg.
+      absence. **RESOLVED as `3ds-romfs` (0.0.21):** `substratum/formats/three_ds_romfs.py`
+      walks the IVFC-wrapped RomFS region — full hash tree verified eagerly
+      (master <- level0 <- level1 <- data, partial trailing block zero-padded;
+      closed-form table-size identities enforced; the 3DS's data-first table
+      relocation characterized on real media and cross-checked against
+      ctrtool's interpretation). Retail proof on staged Cubic Ninja through
+      the full cci → ncch → romfs composition: 540 files, exact path/size map
+      agreement with ctrtool's own extraction plus byte-exact spot checks.
+      ctrtool v1.3.0 quirk recorded: its extractor cannot materialize 0-byte
+      members, so the synthetic reference for `EMPTY.BIN` is staged empty and
+      the two-party test extracts a no-empty rebuild. The 3DS chain now
+      reaches file level; Stratum's detectors can see inside 3DS titles.
 
 - [ ] **CIA content-chunk hash mismatch on two staged eShop titles
       (investigation, 2026-08-20):** `BoxBoxBoy! (USA) (eShop).cia` and
