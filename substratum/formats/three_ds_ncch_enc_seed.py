@@ -36,17 +36,16 @@ Runtime is stdlib-only per DESIGN.md section 4.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
 import struct
 import subprocess
 import tempfile
-import weakref
 from pathlib import Path
 
 from substratum.contract import ByteSource, ByteView, FileSource
+from substratum.formats._spool import TempFileSource
 
 __all__ = ["sniff", "normalize_3ds_ncch_enc_seed"]
 
@@ -78,34 +77,9 @@ _EXEFS_HASH_OFFSET = 0x1C0  # 0x20 bytes
 _ROMFS_HASH_OFFSET = 0x1E0  # 0x20 bytes
 
 
-class _TempFileSource:
-    """ByteSource over a temp file that owns its parent directory.
-
-    Mirrors the chd / three_ds_ncch_enc _TempFileSource: explicit idempotent
-    cleanup with a weakref.finalize fallback.
-    """
-
-    def __init__(self, path: Path, tmp_dir: Path) -> None:
-        self._inner = FileSource(path)
-        self._tmp_dir = tmp_dir
-        self._finalizer = weakref.finalize(
-            self, shutil.rmtree, tmp_dir, ignore_errors=True
-        )
-
-    def read_at(self, offset: int, size: int) -> bytes:
-        return self._inner.read_at(offset, size)
-
-    def size(self) -> int:
-        return self._inner.size()
-
-    def close(self) -> None:
-        self._finalizer()
-
-    def __enter__(self) -> _TempFileSource:
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self.close()
+# Same owned-mkdtemp shape as `chd.py` / `three_ds_ncch_enc.py`; aliased to the
+# shared `_spool.TempFileSource` under this unit's historical private name.
+_TempFileSource = TempFileSource
 
 
 def _ctrtool_exe() -> Path:

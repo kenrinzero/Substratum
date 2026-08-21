@@ -23,8 +23,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from substratum.contract import ByteSource, ByteView, FileSource
+from substratum.contract import ByteSource, ByteView
 from substratum.formats._spool import TempFileSource
+from substratum.formats._stage import stage_to_tempfile
 
 __all__ = ["sniff", "normalize_wbfs"]
 
@@ -80,29 +81,11 @@ def normalize_wbfs(source) -> ByteView:
     that is not already a file, the bytes are staged to a temp file
     because wit requires a filesystem path.
     """
-    src = source if isinstance(source, ByteSource) else FileSource(source)
-
-    # --- resolve a filesystem path for wit ---
-    if isinstance(src, FileSource):
-        wbfs_path = src.path
-        staged = False
-    else:
-        tmp_in = tempfile.NamedTemporaryFile(suffix=".wbfs", delete=False)
-        try:
-            total = src.size()
-            pos = 0
-            while pos < total:
-                chunk = src.read_at(pos, min(1 << 20, total - pos))
-                tmp_in.write(chunk)
-                pos += len(chunk)
-            tmp_in.flush()
-            wbfs_path = Path(tmp_in.name)
-            tmp_in.close()
-            staged = True
-        except BaseException:
-            tmp_in.close()
-            Path(tmp_in.name).unlink(missing_ok=True)
-            raise
+    # Resolve `source` to a filesystem path; stage to a temp file if it
+    # isn't already one.  See `_stage.py` for the streaming + cleanup
+    # contract; the caller's `finally` unlinks the staged file alongside
+    # the temp-dir lifecycle.
+    wbfs_path, staged = stage_to_tempfile(source, suffix=".wbfs")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="substratum-wbfs-"))
 

@@ -18,8 +18,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from substratum.contract import ByteSource, ByteView, FileSource
+from substratum.contract import ByteView
 from substratum.formats._spool import TempFileSource
+from substratum.formats._stage import stage_to_tempfile
 
 __all__ = ["DOLPHIN_ENV", "TempFileSource", "convert_disc_to_iso", "dolphin_tool_exe"]
 
@@ -69,30 +70,12 @@ def convert_disc_to_iso(source, *, format_tag: str) -> ByteView:
     that is not already a file, the bytes are staged to a temp file
     because dolphin-tool requires a filesystem path.
     """
-    src = source if isinstance(source, ByteSource) else FileSource(source)
-
-    # --- resolve a filesystem path for dolphin-tool ---
-    if isinstance(src, FileSource):
-        container_path = src.path
-        staged = False
-    else:
-        # stage a non-file ByteSource to a temp container file
-        tmp_in = tempfile.NamedTemporaryFile(suffix=f".{format_tag}", delete=False)
-        try:
-            total = src.size()
-            pos = 0
-            while pos < total:
-                chunk = src.read_at(pos, min(1 << 20, total - pos))
-                tmp_in.write(chunk)
-                pos += len(chunk)
-            tmp_in.flush()
-            container_path = Path(tmp_in.name)
-            tmp_in.close()
-            staged = True
-        except BaseException:
-            tmp_in.close()
-            Path(tmp_in.name).unlink(missing_ok=True)
-            raise
+    # Resolve `source` to a filesystem path; stage to a temp file if it
+    # isn't already one (the `stage_to_tempfile` helper owns the
+    # cleanup-then-re-raise on staging-mid-write failures; the
+    # caller's `finally: if staged: container_path.unlink(...)` handles
+    # the post-staging cleanup alongside the temp-dir lifecycle).
+    container_path, staged = stage_to_tempfile(source, suffix=f".{format_tag}")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"substratum-{format_tag}-"))
 

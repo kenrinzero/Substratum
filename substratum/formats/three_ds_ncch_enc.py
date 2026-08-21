@@ -33,10 +33,10 @@ import shutil
 import struct
 import subprocess
 import tempfile
-import weakref
 from pathlib import Path
 
 from substratum.contract import ByteSource, ByteView, FileSource
+from substratum.formats._spool import TempFileSource
 
 __all__ = ["sniff", "normalize_3ds_ncch_enc"]
 
@@ -73,36 +73,11 @@ _CTRTOOL_ENV = "SUBSTRATUM_CTRTOOL"
 _CTRTOOL_TIMEOUT_SECONDS = 300
 
 
-class _TempFileSource:
-    """ByteSource over a temp file that owns its parent directory.
-
-    The assembled decrypted NCCH lives in a mkdtemp directory. FileSource has
-    no lifecycle hook, so this wrapper supplies explicit idempotent cleanup
-    and a finalizer fallback (mirrors the chd normalizer's _TempFileSource).
-    """
-
-    def __init__(self, path: Path, tmp_dir: Path) -> None:
-        self._inner = FileSource(path)
-        self._tmp_dir = tmp_dir
-        self._finalizer = weakref.finalize(
-            self, shutil.rmtree, tmp_dir, ignore_errors=True
-        )
-
-    def read_at(self, offset: int, size: int) -> bytes:
-        return self._inner.read_at(offset, size)
-
-    def size(self) -> int:
-        return self._inner.size()
-
-    def close(self) -> None:
-        """Remove the owned assembly tree; safe to call more than once."""
-        self._finalizer()
-
-    def __enter__(self) -> _TempFileSource:
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self.close()
+# The assembled decrypted NCCH lives in a mkdtemp directory this source owns.
+# That is exactly `_spool.TempFileSource`; aliased under this unit's historical
+# private name so the shape lives in one place (same pattern as `chd.py` and
+# `rvz.py`).
+_TempFileSource = TempFileSource
 
 
 def _repo_ctrtool_candidate() -> Path:

@@ -31,8 +31,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from substratum.contract import ByteSource, ByteView, FileSource
+from substratum.contract import ByteSource, ByteView
 from substratum.formats._spool import TempFileSource
+from substratum.formats._stage import stage_to_tempfile
 
 __all__ = ["sniff", "normalize_nkit"]
 
@@ -94,29 +95,11 @@ def normalize_nkit(source) -> ByteView:
     that is not already a file, the bytes are staged to a temp file
     because the tool requires a filesystem path.
     """
-    src = source if isinstance(source, ByteSource) else FileSource(source)
-
-    # --- resolve a filesystem path for the tool ---
-    if isinstance(src, FileSource):
-        nkit_path = src.path
-        staged = False
-    else:
-        tmp_in = tempfile.NamedTemporaryFile(suffix=".nkit.iso", delete=False)
-        try:
-            total = src.size()
-            pos = 0
-            while pos < total:
-                chunk = src.read_at(pos, min(1 << 20, total - pos))
-                tmp_in.write(chunk)
-                pos += len(chunk)
-            tmp_in.flush()
-            nkit_path = Path(tmp_in.name)
-            tmp_in.close()
-            staged = True
-        except BaseException:
-            tmp_in.close()
-            Path(tmp_in.name).unlink(missing_ok=True)
-            raise
+    # Resolve `source` to a filesystem path; stage to a temp file if it
+    # isn't already one.  See `_stage.py` for the streaming + cleanup
+    # contract; the caller's `finally` unlinks the staged file alongside
+    # the temp-dir lifecycle.
+    nkit_path, staged = stage_to_tempfile(source, suffix=".nkit.iso")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="substratum-nkit-"))
 

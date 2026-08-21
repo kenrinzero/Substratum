@@ -19,48 +19,19 @@ import re
 import shutil
 import subprocess
 import tempfile
-import weakref
 from pathlib import Path
 
-from substratum.contract import ByteSource, ByteView, FileSource
+from substratum.contract import ByteSource, ByteView
+from substratum.formats._spool import TempFileSource as _TempFileSource
+from substratum.formats._stage import stage_to_tempfile
 
+# `_TempFileSource` is the shared `_spool.TempFileSource` under this unit's
+# historical private name: the extracted .bin lives in a mkdtemp directory the
+# source owns, and its `.path` is what lets a composed `ps1-bincue` find the
+# sibling .cue that `chdman extractcd` wrote beside it. Kept as an alias
+# rather than a re-import so `chd_module._TempFileSource` stays a test surface
+# (same shape as `rvz.py`).
 __all__ = ["sniff", "normalize_chd"]
-
-
-class _TempFileSource:
-    """ByteSource over a temp file that owns its parent directory.
-
-    The extracted .bin lives in a mkdtemp directory.  Normal FileSource
-    has no lifecycle hook, so this wrapper supplies explicit idempotent
-    cleanup and a finalizer fallback.  The inner file's .path is exposed
-    so sibling files (e.g. the .cue from extractcd) can be resolved by
-    composed normalizers (ps1-bincue).
-    """
-
-    def __init__(self, path: Path, tmp_dir: Path) -> None:
-        self._inner = FileSource(path)
-        self.path = path
-        self._tmp_dir = tmp_dir
-        self._finalizer = weakref.finalize(
-            self, shutil.rmtree, tmp_dir, ignore_errors=True
-        )
-
-    def read_at(self, offset: int, size: int) -> bytes:
-        return self._inner.read_at(offset, size)
-
-    def size(self) -> int:
-        return self._inner.size()
-
-    def close(self) -> None:
-        """Remove the owned extraction tree; safe to call more than once."""
-        self._finalizer()
-
-    def __enter__(self) -> _TempFileSource:
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self.close()
-
 
 _CHDMAN_REL = Path("tools") / "chdman" / "chdman.exe"
 _CHDMAN_ENV = "SUBSTRATUM_CHDMAN"
@@ -171,28 +142,11 @@ def normalize_chd(source) -> ByteView:
     that is not already a file, the bytes are staged to a temp file
     because chdman requires a filesystem path.
     """
-    src = source if isinstance(source, ByteSource) else FileSource(source)
-
-    # --- resolve a filesystem path for chdman ---
-    if isinstance(src, FileSource):
-        chd_path = src.path
-    else:
-        # stage a non-file ByteSource to a temp .chd
-        tmp_chd = tempfile.NamedTemporaryFile(suffix=".chd", delete=False)
-        try:
-            total = src.size()
-            pos = 0
-            while pos < total:
-                chunk = src.read_at(pos, min(1 << 20, total - pos))
-                tmp_chd.write(chunk)
-                pos += len(chunk)
-            tmp_chd.flush()
-            chd_path = Path(tmp_chd.name)
-            tmp_chd.close()
-        except BaseException:
-            tmp_chd.close()
-            Path(tmp_chd.name).unlink(missing_ok=True)
-            raise
+    # Resolve `source` to a filesystem path; stage to a temp file if it
+    # isn't already one.  See `_stage.py` for the streaming + cleanup
+    # contract; the caller's `finally` unlinks the staged file alongside
+    # the temp-dir lifecycle.
+    chd_path, staged = stage_to_tempfile(source, suffix=".chd")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="substratum-chd-"))
 
@@ -213,5 +167,5 @@ def normalize_chd(source) -> ByteView:
         raise
     finally:
         # If we staged a temp CHD, clean it up
-        if not isinstance(src, FileSource):
-            Path(chd_path).unlink(missing_ok=True)
+        if staged:
+            chd_path.unlink(missing_ok=True)
