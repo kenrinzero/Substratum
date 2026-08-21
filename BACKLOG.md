@@ -7,14 +7,14 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.22** is clean (the `chd` retail closure landed 2026-08-21, after `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **19 normalizers** are GREEN:
+Version **0.0.23** is clean (the `rvz` container landed 2026-08-21, after `chd` retail closure on 0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **20 normalizers** are GREEN:
 the keyless/decrypted floor, the complete Wii chain, the CIA container, the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
 no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
 (`3ds-ncch-enc-96`, pure-Python AES-CTR, `0x0B`/`0x1B`). The 9.6 unit bypasses
 vendored ctrtool entirely and implements the **two-key NCCH model**
 (exheader/ExeFS-superblock/ExeFS-tail = Key0/`0x2C`; `.code`+RomFS =
-Key1/`0x1B`). The `chd` unit is now closed through the retail proof gate —
+Key1/`0x1B`). The `rvz` unit closes the GC+Wii gap via `DolphinTool 2606a` (`GT Cube` 661 files + `Ghost Squad` 2 partitions, `wit` second reader; `zip → rvz → gc-fst` now covers 2,573 titles). The `chd` unit is now closed through the retail proof gate —
 DVD-type PSP CHD extractdvd + iso9660 walks clean, and CD-type PS1 CHD
 composes all the way through `chd → ps1-bincue → iso9660` end-to-end on real
 retail images (BursTrick round-trip; the `_TempFileSource.path` exposure makes
@@ -377,7 +377,9 @@ and the two-key finding in
       chain. The original ask follows, kept verbatim for the oracle choices it
       records.
 
-- [ ] **`F:\game` corpus formats — RVZ / WBFS (+ GCZ / NKit as follow-ons;
+- [x] **`rvz` — GC/Wii Dolphin RVZ container (F:\game corpus formats — RVZ; DONE 2026-08-21, 0.0.23):** `substratum/formats/rvz.py` returns a `ByteView` of the Dolphin-decoded ISO (`DolphinTool 2606a` `dolphin-tool convert --format iso`, block `131072` `zstd:5`); `GT Cube (Japan).rvz` (GC, 273 MB → 1,459,978,240 bytes, 661 `gc-fst` files) and `Ghost Squad (Japan).rvz` (Wii, 374 MB → 4,699,979,776 bytes, 2 `wii-disc` partitions) both staged in `fixtures/_local/` (gitignored) and proven via `DolphinTool` + `wit` second reader; gate `444 passed`. Closes the `zip → rvz` chain for the 2,573-title GC+Wii corpus. `WBFS`/`GCZ`/`NKit` remain as follow-ons (operator-gated).
+
+- [ ] **`F:\game` corpus formats — WBFS / GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's
       eventual operator-run corpus sweep (its BACKLOG Unit 4) targets
       `F:\game`, which is **decrypted emulator-optimized formats — not raw

@@ -19,10 +19,10 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.21 (2026-08-21): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and nineteen real
+Version 0.0.23 (2026-08-21): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and twenty real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
-`saturn-dc-raw`, `cso`, `zip`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`,
+`saturn-dc-raw`, `cso`, `zip`, `rvz`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`,
 `3ds-ncch`, `3ds-romfs`,
 the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`),
 `3ds-ncch-enc`, `cia`, `3ds-ncch-enc-seed`, and `3ds-ncch-enc-96`. The
@@ -39,6 +39,7 @@ one-file decompression spool (the `chd` pattern) and returns a FileTree
 whose byte ranges point into it — per-member CRC-32 and inflated sizes
 are validated during the streaming extract, and its expected manifest is
 authored from pinned 7-Zip's independent listing and extraction.
+`rvz` decompresses Dolphin's RVZ block stream (`DolphinTool 2606a`, `zstd:5`, `131072`-byte blocks) into a `ByteView` of the raw GC/Wii ISO — `GT Cube` (GC, 661 `gc-fst` files) and `Ghost Squad` (Wii, 2 partitions) proven via `wit` second reader; the full `zip → rvz → gc-fst` chain now covers the 2,573-title GC+Wii corpus.
 `3ds-romfs` walks the decrypted IVFC-wrapped RomFS layer with the
 complete hash tree verified eagerly (master <- level0 <- level1 <- data),
 proven on staged retail media through the full cci → ncch → romfs
@@ -158,7 +159,7 @@ uv sync
 uv run pytest
 ```
 
-The runtime package itself is stdlib-only. CHD decoding additionally
+The runtime package itself is stdlib-only. `RVZ` decoding additionally requires `DolphinTool` (`dolphin-tool convert`) — set `SUBSTRATUM_DOLPHIN_TOOL` or use the pinned `tools/dolphin-tool/DolphinTool.exe` via `seedtools/vendor_tools.py dolphin-tool` — and CHD decoding additionally
 requires `chdman`: set `SUBSTRATUM_CHDMAN` to its executable, install it
 on `PATH`, or use the pinned repo-local `tools/chdman/chdman.exe`
 restored with `uv run python seedtools/vendor_tools.py chdman`. That is

@@ -99,6 +99,13 @@ THREEDSTOOL_ZIP_SHA256 = "481e20f445eb2f0f506d0d88cd750385bc8377670d681d6f66f584
 THREEDSTOOL_EXE_SHA256 = "967fd5ec6476df1fa6a01da0df5a1fea339aa488c10be218d38e07f4b8143b7e"
 THREEDSTOOL_BANNER = "3dstool 1.2.6 by dnasdw"
 
+DOLPHIN_VERSION = "2606a"
+DOLPHIN_7Z = "dolphin-2606a-x64.7z"
+DOLPHIN_URL = f"https://dl.dolphin-emu.org/releases/{DOLPHIN_VERSION}/{DOLPHIN_7Z}"
+DOLPHIN_7Z_SHA256 = "4c58045f9821cb63913f4df08ea86ece3cdda9f9e646154516000fa1547e0c37"
+DOLPHIN_TOOL_EXE_SHA256 = "98f0a7d2e711eeb53a3504d453eb970f4178e48dcb4c745e3d8fa24d8d90a6bc"
+DOLPHIN_TOOL_BANNER_FRAGMENT = "dolphin-tool"  # `dolphin-tool convert --help` lists supported commands
+
 DOWNLOAD_TIMEOUT_SECONDS = 60
 TOOL_TIMEOUT_SECONDS = 300
 
@@ -370,6 +377,47 @@ def vendor_3dstool() -> None:
     archive.unlink()
 
 
+def vendor_dolphin_tool() -> None:
+    tool_dir = TOOLS / "dolphin-tool"
+    exe = tool_dir / "DolphinTool.exe"
+    if exe.exists():
+        check_pin(exe, DOLPHIN_TOOL_EXE_SHA256, "dolphin-tool exe")
+        banner = run_output([str(exe), "convert", "--help"])
+        if DOLPHIN_TOOL_BANNER_FRAGMENT not in banner:
+            raise SystemExit(f"tools/dolphin-tool/DolphinTool.exe banner is unexpected: {banner!r}")
+        print(f"dolphin-tool already vendored: {DOLPHIN_VERSION} ({exe.name})")
+        return
+
+    DL.mkdir(parents=True, exist_ok=True)
+    archive = DL / DOLPHIN_7Z
+    fetch(DOLPHIN_URL, archive)
+    check_pin(archive, DOLPHIN_7Z_SHA256, "dolphin 7z")
+
+    tool_dir.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["7z", "e", str(archive), r"Dolphin-x64\DolphinTool.exe", f"-o{tool_dir}", "-y"],
+        capture_output=True,
+        check=True,
+        timeout=TOOL_TIMEOUT_SECONDS,
+    )
+    # normalize casing to the expected name (7z preserves the source casing)
+    extracted = tool_dir / "DolphinTool.exe"
+    if not extracted.exists():
+        # fallback: case-insensitive search
+        for candidate in tool_dir.iterdir():
+            if candidate.name.lower() == "dolphintool.exe":
+                candidate.rename(extracted)
+                break
+    if not exe.exists():
+        raise SystemExit("DolphinTool.exe not found after extraction")
+    check_pin(exe, DOLPHIN_TOOL_EXE_SHA256, "dolphin-tool exe")
+    banner = run_output([str(exe), "convert", "--help"])
+    if DOLPHIN_TOOL_BANNER_FRAGMENT not in banner:
+        raise SystemExit(f"extracted dolphin-tool banner mismatch: {banner!r}")
+    print(f"dolphin-tool OK: {DOLPHIN_VERSION} ({exe.name})\n  exe sha256 {sha256_of(exe)}")
+    archive.unlink()
+
+
 def main() -> None:
     which = set(sys.argv[1:]) or {"chdman", "wit"}
     if "chdman" in which:
@@ -384,6 +432,8 @@ def main() -> None:
         vendor_ctrtool()
     if "3dstool" in which or "3ds" in which:
         vendor_3dstool()
+    if "dolphin-tool" in which or "rvz" in which:
+        vendor_dolphin_tool()
 
 
 if __name__ == "__main__":

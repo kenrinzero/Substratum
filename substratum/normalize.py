@@ -62,6 +62,7 @@ from substratum.formats.wii_u8_arc import (
     normalize_wii_u8_arc,
     sniff as sniff_wii_u8_arc,
 )
+from substratum.formats.rvz import normalize_rvz, sniff as sniff_rvz
 from substratum.formats.xdvdfs import normalize_xdvdfs, sniff as sniff_xdvdfs
 from substratum.formats.zip import normalize_zip, sniff as sniff_zip
 
@@ -105,6 +106,7 @@ _FORMATS = (
     _Format("chd", sniff_chd, normalize_chd),
     _Format("cso", sniff_cso, normalize_cso),
     _Format("zip", sniff_zip, normalize_zip),
+    _Format("rvz", sniff_rvz, normalize_rvz),
     _Format("gc-fst", sniff_gc_fst, normalize_gc_fst),
     _Format("wii-u8-arc", sniff_wii_u8_arc, normalize_wii_u8_arc),
     _Format("xdvdfs", sniff_xdvdfs, normalize_xdvdfs),
