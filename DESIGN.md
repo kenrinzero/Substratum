@@ -74,6 +74,22 @@ fixture-expected-outputs AND the downstream handoff shape — Stratum/Quarry
 consume contract types and manifests, never normalizer internals (settled
 boundary).
 
+**`format` on a composed manifest names the chain, keyed by its outermost
+layer** (clarified 2026-08-21). A container normalizer returns a `ByteView`
+and never emits a `FileTree`, so a fixture that proves `chd → iso9660` or
+`ciso → gc-fst` records `"format": "chd"` / `"ciso"` over entries the inner
+filesystem walker produced. That is deliberate — it pins the whole chain —
+but it means `format` is not "the normalizer that produced these entries".
+
+**Not every fixture directory holds a manifest.** Keyed retail anchors whose
+unit returns a `ByteView` carry a free-form provenance record named
+`anchor.json` instead: identity, the oracle rationale, and sampled regions.
+Those are deliberately outside `manifest.schema.json` and are not gate
+inputs. The two names never mix — `tests/test_manifest_conformance.py`
+enforces that every `expected.manifest.json` validates and is canonically
+serialized, that every `anchor.json` does not validate, and that no
+directory holds both.
+
 ## 3. The gate (`verify.py`, four checks in increasing strength)
 
 Per fixture row in NORMALIZERS.md:

@@ -207,8 +207,10 @@ def main() -> None:
         "layout": "GC/Wii decrypted DATA partition (yagcd/wiibrew)",
         "samples": sorted(entries, key=lambda e: e["decrypted_offset"]),
     }
-    (OUTPUT / "anchor.json").write_text(
-        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="ascii"
+    # write_bytes, not write_text: write_text maps \n to the platform newline,
+    # so on this Windows host it silently emitted a CRLF anchor record.
+    (OUTPUT / "anchor.json").write_bytes(
+        (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode("ascii")
     )
     sample_bytes = sum(e["size"] for e in entries)
     print(

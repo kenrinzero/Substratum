@@ -236,8 +236,11 @@ def author_bin_cue(iso_path: Path, bin_path: Path, cue_path: Path) -> int:
         chunks.append(wrap_sector(user, i))
 
     bin_path.write_bytes(b"".join(chunks))
-    cue_path.write_text(
-        f'FILE "{bin_path.name}" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n'
+    # write_bytes, not write_text: write_text maps \n to the platform newline,
+    # so on this Windows host it silently emitted a CRLF .cue.
+    cue_path.write_bytes(
+        f'FILE "{bin_path.name}" BINARY\n  TRACK 01 MODE2/2352\n'
+        f"    INDEX 01 00:00:00\n".encode("ascii")
     )
     return n_sectors
 

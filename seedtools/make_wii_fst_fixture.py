@@ -156,21 +156,32 @@ def main() -> None:
     # Expected payload descriptors for the fidelity check (reference bytes are
     # the committed payloads themselves — derived from the known structure,
     # not from the normalizer under test).
-    (OUTPUT / "payloads.json").write_text(
-        json.dumps(
-            {
-                "files/a.bin": {"offset": off_a, "fill": "AA", "size": len(payload_a)},
-                "files/b.dat": {"offset": off_b, "fill": "BB", "size": len(payload_b)},
-                "files/sub/c.txt": {
-                    "offset": off_c,
-                    "fill": "CC",
-                    "size": len(payload_c),
+    # write_bytes, not write_text: write_text maps \n to the platform newline,
+    # so on this Windows host it silently emitted a CRLF descriptor.
+    (OUTPUT / "payloads.json").write_bytes(
+        (
+            json.dumps(
+                {
+                    "files/a.bin": {
+                        "offset": off_a,
+                        "fill": "AA",
+                        "size": len(payload_a),
+                    },
+                    "files/b.dat": {
+                        "offset": off_b,
+                        "fill": "BB",
+                        "size": len(payload_b),
+                    },
+                    "files/sub/c.txt": {
+                        "offset": off_c,
+                        "fill": "CC",
+                        "size": len(payload_c),
+                    },
                 },
-            },
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="ascii",
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("ascii")
     )
 
     print(

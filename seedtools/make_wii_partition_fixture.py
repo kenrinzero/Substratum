@@ -118,15 +118,18 @@ def main() -> None:
     # test can derive truth independently of the normalizer.
     key_path = OUTPUT / "test-common-key.bin"
     key_path.write_bytes(_TEST_COMMON_KEY)
-    (OUTPUT / "clusters.json").write_text(
-        '{"cluster_count": %d, "payload_size": %d, '
-        '"test_title_id": "%s"}\n'
-        % (
-            CLUSTER_COUNT,
-            _CLUSTER_PAYLOAD_SIZE,
-            _TEST_TITLE_ID.hex(),
-        ),
-        encoding="ascii",
+    # write_bytes, not write_text: write_text maps \n to the platform newline,
+    # so on this Windows host it silently emitted a CRLF descriptor.
+    (OUTPUT / "clusters.json").write_bytes(
+        (
+            '{"cluster_count": %d, "payload_size": %d, '
+            '"test_title_id": "%s"}\n'
+            % (
+                CLUSTER_COUNT,
+                _CLUSTER_PAYLOAD_SIZE,
+                _TEST_TITLE_ID.hex(),
+            )
+        ).encode("ascii")
     )
     print(
         f"authored synthetic Wii partition: {len(image)} bytes, "
