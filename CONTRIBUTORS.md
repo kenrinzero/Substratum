@@ -18,6 +18,7 @@ surfaces through which it is reachable.
 - **GPT-5.6 Terra** (Codex)
 - **GPT-5.6 Sol** (Codex)
 - **GLM-5.3** (ZCode)
+- **Seed-2.1-Turbo** (TRAE)
 
 Maintained by **kenrinzero**.
 

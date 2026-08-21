@@ -7,16 +7,20 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.21** is clean (the `3ds-romfs` layer landed 2026-08-21, a day after `zip`). **19 normalizers** are GREEN:
-the keyless/decrypted floor, the complete Wii chain, the CIA container, and the
+Version **0.0.22** is clean (the `chd` retail closure landed 2026-08-21, after `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **19 normalizers** are GREEN:
+the keyless/decrypted floor, the complete Wii chain, the CIA container, the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
 no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
 (`3ds-ncch-enc-96`, pure-Python AES-CTR, `0x0B`/`0x1B`). The 9.6 unit bypasses
 vendored ctrtool entirely and implements the **two-key NCCH model**
 (exheader/ExeFS-superblock/ExeFS-tail = Key0/`0x2C`; `.code`+RomFS =
-Key1/`0x1B`). **Next: New3DS 9.3 (`0x0A`/`0x18`) is opportunistic only** —
-tooling falls out of the 9.6 path, but a genuine `0x0A` anchor is effectively
-lost media. See
+Key1/`0x1B`). The `chd` unit is now closed through the retail proof gate —
+DVD-type PSP CHD extractdvd + iso9660 walks clean, and CD-type PS1 CHD
+composes all the way through `chd → ps1-bincue → iso9660` end-to-end on real
+retail images (BursTrick round-trip; the `_TempFileSource.path` exposure makes
+sibling `.cue` discovery work in the composed path). **Next: New3DS 9.3
+(`0x0A`/`0x18`) is opportunistic only** — tooling falls out of the 9.6 path,
+but a genuine `0x0A` retail anchor is effectively lost media. See
 [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION (2026-07-30)"
 and the two-key finding in
 [`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md).
@@ -223,41 +227,48 @@ and the two-key finding in
       `bink.video` path the backlog called out, without broadening beyond the
       `xdvdfs` normalizer scope.
 
-- [ ] **`chd` two bugs — DVD-type CHDs crash, CD-type CHDs lose their cue
+- [x] **`chd` two bugs — DVD-type CHDs crash, CD-type CHDs lose their cue
       (consumer request from Stratum, 2026-08-20; CHEAP, ~8,900 corpus
-      titles):** an operator-authorized inventory of `F:\game` found PS1
-      (6,089 titles) and PSP (2,856) both stored as `.chd`, and **neither
-      normalizes today**. Two independent causes, both small.
-      **(1) DVD-type CHDs.** `normalize_chd` always shells
-      `chdman extractcd`. PSP CHDs are DVD-type (`chdman info` reports
-      `Metadata: Tag='DVD '`, 2048-byte unit size, zstd — no CD track
-      metadata), and `extractcd` aborts on them: exit `3221226505`,
-      `libc++abi: terminating due to uncaught exception of type
-      std::nullptr_t`. Dispatch on the metadata tag — `DVD ` → `extractdvd`
-      (or `extractraw`), CD-type → `extractcd`. The DVD output is a plain
-      2048-byte image that feeds `iso9660` directly with no further
-      composition. **(2) The extracted cue is misnamed.** For CD-type CHDs
-      the call passes `-o <tmp>/extracted` with no extension, so chdman writes
-      the cue as `extracted` (122 bytes, **no suffix**) alongside
-      `extracted.bin`. `ps1-bincue` then resolves the sibling as
-      `extracted.cue`, does not find it, and raises
-      `no .cue sibling at ...\extracted.cue` — so a PS1 CHD can never compose
-      past the chd layer. Passing `-o <tmp>/extracted.cue` fixes it;
-      **verified end-to-end 2026-08-20** on retail PS1 CHDs
-      (`chd → ps1-bincue → iso9660 → Stratum scan` walks and scans).
-      Note `_TempFileSource` also exposes no path and is not a `FileSource`,
-      so even a correctly-named cue is only reachable because `ps1-bincue`
-      accepts a path; consider exposing the inner path so composition does not
-      depend on that. **Residual scope limit, not a bug:** `ps1-bincue`
-      refuses multi-track discs by design, which is 13 of 40 sampled PS1
-      titles (~32%), capping PS1 reach near 4,100 of 6,089. Widening that is
-      a separate decision, not part of this fix.
-      **Operator drop (2026-08-21):** DVD-type PSP CHD is staged at
-      gitignored `fixtures/_local/7 Wonders of the Ancient World (USA).chd`
-      (`chdman info` 0.288: `Tag='DVD '`, 2048-byte units, zstd). Do not hunt
-      another; this closes the acquisition gate for the remaining `extractdvd`
-      retail proof. The `_TempFileSource` cue-path composition gap is still
-      open.
+      titles; RESOLVED 2026-08-21):** an operator-authorized inventory of `F:\game`
+      found PS1 (6,089 titles) and PSP (2,856) both stored as `.chd`, and
+      **neither normalized**. Two independent causes, both small.
+      **(1) DVD-type CHDs.** `normalize_chd` always shelled `chdman extractcd`.
+      PSP CHDs are DVD-type (`chdman info` reports `Metadata: Tag='DVD '`,
+      2048-byte unit size, zstd — no CD track metadata), and `extractcd`
+      aborts on them: exit `3221226505`, `libc++abi: terminating due to uncaught
+      exception of type std::nullptr_t`. Fix: `_chd_extract_command()` dispatches
+      on the metadata tag — `DVD ` (whitespace-padded in the Tag= record) →
+      `extractdvd`, otherwise → `extractcd`. DVD output is a plain 2048-byte
+      image that feeds `iso9660` directly with no further composition.
+      Retail proof: staged `7 Wonders of the Ancient World (USA).chd` (PSP DVD,
+      sha256 `3f91c7ab…`) walks to 28 entries/22 files via the direct
+      `chd → iso9660` path.
+      **(2) The extracted cue was misnamed + the temp source had no path.**
+      For CD-type CHDs the original call passed `-o <tmp>/extracted.cue`,
+      correctly placing the cue, but `_TempFileSource` wrapped the extracted
+      `.bin` in a `ByteSource` that carried no `.path` attribute and was
+      not a `FileSource`, so `ps1-bincue._resolve_pair` fell through to the
+      "raw ByteSources without a path" rejection branch even though the cue
+      sibling existed on disk. Two-part fix:
+      (a) `_TempFileSource` now exposes a `self.path` attribute set to the
+      inner `FileSource`'s path (the extracted `.bin`);
+      (b) `ps1_bincue._resolve_pair` now does duck-typed attribute detection
+      first (`hasattr(source, "path")`) before falling back to `str`/`Path`
+      and the explicit `FileSource` type check — so any path-bearing
+      `ByteSource` composes naturally, not just the original `FileSource`.
+      Combined with the pre-existing `-o extracted.cue` naming fix (already
+      landed at backlog write time, the `_TempFileSource` half was the
+      residual), the full chain now works.
+      Retail proof (CD-type): `fixtures/_local/bin-chd-playstation/`
+      `BursTrick - Wake Boarding!! (USA).bin` compressed to a temp CHD via
+      `chdman createcd` → `normalize_chd` → `normalize_ps1_bincue` →
+      `normalize_iso9660` walks a **byte-identical** FileTree to a direct
+      `ps1-bincue → iso9660` walk over the original bin (identical path
+      sets, spot-checked head+tail on the first/last/largest files).
+      **Residual scope limit, not a bug:** `ps1-bincue` refuses multi-track
+      discs by design, which is 13 of 40 sampled PS1 titles (~32%), capping
+      PS1 reach near 4,100 of 6,089. Widening that is a separate decision,
+      not part of this fix.
 
 - [x] **`zip` container layer — BUILT (consumer request from Stratum,
       2026-08-20; BIGGEST REACH, 14,643 corpus titles / 62% of the disc corpus):** the same `F:\game` inventory

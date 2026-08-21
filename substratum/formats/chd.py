@@ -32,11 +32,14 @@ class _TempFileSource:
 
     The extracted .bin lives in a mkdtemp directory.  Normal FileSource
     has no lifecycle hook, so this wrapper supplies explicit idempotent
-    cleanup and a finalizer fallback.
+    cleanup and a finalizer fallback.  The inner file's .path is exposed
+    so sibling files (e.g. the .cue from extractcd) can be resolved by
+    composed normalizers (ps1-bincue).
     """
 
     def __init__(self, path: Path, tmp_dir: Path) -> None:
         self._inner = FileSource(path)
+        self.path = path
         self._tmp_dir = tmp_dir
         self._finalizer = weakref.finalize(
             self, shutil.rmtree, tmp_dir, ignore_errors=True

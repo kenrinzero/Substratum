@@ -404,20 +404,21 @@ def sniff(source: ByteSource) -> bool:
 
 def _resolve_pair(source) -> tuple[ByteSource, Path]:
     """Return (bin ByteSource, .cue path). The source must be a path or
-    a FileSource — we need the on-disk .bin to find its sibling .cue.
+    carry a .path attribute naming the on-disk .bin (duck-typed: the
+    sibling .cue is resolved from .path.with_suffix(".cue")).
 
-    A bare ByteSource with no path is refused (composition principle:
+    A bare ByteSource without a .path is refused (composition principle:
     ps1-bincue is a path-bound format; the .bin/.cue pair is the file
     on disk that carries the data).
     """
-    if isinstance(source, FileSource):
-        bin_path = source.path
+    if hasattr(source, "path"):
+        bin_path = Path(source.path)
     elif isinstance(source, (str, Path)):
         bin_path = Path(source)
     else:
         raise ValueError(
-            "ps1-bincue: requires a path to the .bin (the .cue is its sibling) — "
-            "raw ByteSources without a path are out of scope for this unit"
+            "ps1-bincue: requires a path or a .path-bearing ByteSource to the .bin "
+            "(the .cue is its sibling) — raw ByteSources without a path are out of scope"
         )
     cue_path = bin_path.with_suffix(".cue")
     if not cue_path.exists():
