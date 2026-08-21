@@ -7,7 +7,7 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.18** is clean (post New3DS 9.6). **17 normalizers** are GREEN:
+Version **0.0.20** is clean (the `zip` container layer landed 2026-08-21). **18 normalizers** are GREEN:
 the keyless/decrypted floor, the complete Wii chain, the CIA container, and the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
 no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
@@ -252,9 +252,8 @@ and the two-key finding in
       titles (~32%), capping PS1 reach near 4,100 of 6,089. Widening that is
       a separate decision, not part of this fix.
 
-- [ ] **`zip` container normalizer — or an operator pre-extraction path
-      (consumer request from Stratum, 2026-08-20; BIGGEST REACH, 14,643
-      corpus titles / 62% of the disc corpus):** the same `F:\game` inventory
+- [x] **`zip` container layer — BUILT (consumer request from Stratum,
+      2026-08-20; BIGGEST REACH, 14,643 corpus titles / 62% of the disc corpus):** the same `F:\game` inventory
       found that everything except PS1 and PSP is stored **zipped**: PS2
       (5,623 → `.iso` or `.bin`+`.cue`), Saturn (2,413 → `.bin`+`.cue`), 3DS
       (2,149 → `.3ds`), GameCube (2,019 → `.rvz`), Dreamcast (1,509 →
@@ -282,6 +281,18 @@ and the two-key finding in
       Unit 4 hard rules already require. Peak disk stays flat regardless of
       corpus size, which is the property that makes the census runnable at
       all.
+
+      **RESOLVED 2026-08-21 — the normalizer landed as `zip` (0.0.20).**
+      `substratum/formats/zip.py` returns a FileTree over a one-file
+      decompression spool (stored + deflate, data descriptors, and ZIP64
+      sizes/offsets/records all parse; per-member CRC-32 and inflated size
+      validated during the streaming extract; encrypted members, unsupported
+      methods, multi-disk, and duplicate/traversal paths refused
+      structurally). Synthetic fixture hand-packed by
+      `seedtools/make_zip_fixture.py`; expected manifest authored from
+      7-Zip 26.02's independent listing and reference bytes from its own
+      extraction (two-party rule). Retail anchor not yet staged — the
+      consumer sweep will exercise real corpus zips directly.
 
 - [ ] **3DS RomFS (IVFC) filesystem normalizer (consumer request from
       Stratum, 2026-08-20):** the 3DS chain currently bottoms out at opaque

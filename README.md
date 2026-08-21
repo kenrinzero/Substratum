@@ -19,10 +19,11 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.18 (2026-07-30): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and seventeen real
+Version 0.0.20 (2026-08-21): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and eighteen real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
-`saturn-dc-raw`, `cso`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`, `3ds-ncch`,
+`saturn-dc-raw`, `cso`, `zip`, `wii-u8-arc`, `xdvdfs`, `3ds-cci`,
+`3ds-ncch`,
 the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`),
 `3ds-ncch-enc`, `cia`, `3ds-ncch-enc-seed`, and `3ds-ncch-enc-96`. The
 3DS encrypted-NCCH family is complete for all available anchors: standard
@@ -33,7 +34,12 @@ ExeFS-tail under Key0, `.code`+RomFS under Key1). Every unit runs
 through the same four-check
 structural, manifest,
 round-trip, and byte-fidelity gate; the large GameCube fixtures also carry
-a 1 GB per-test peak-RSS guard. `iso9660`, `gc-fst`, and `wii-u8-arc` refuse
+a 1 GB per-test peak-RSS guard. `zip` spools DEFLATE members into a
+one-file decompression spool (the `chd` pattern) and returns a FileTree
+whose byte ranges point into it — per-member CRC-32 and inflated sizes
+are validated during the streaming extract, and its expected manifest is
+authored from pinned 7-Zip's independent listing and extraction.
+`iso9660`, `gc-fst`, and `wii-u8-arc` refuse
 traversal-capable path components; ISO9660 also refuses directory records
 that overrun an extent or logical block. Its real-pressing proof is the
 preservation-metadata-matching Gallop Racer 2001 USA PS2 disc

@@ -59,6 +59,7 @@ from substratum.formats.wii_u8_arc import (
     sniff as sniff_wii_u8_arc,
 )
 from substratum.formats.xdvdfs import normalize_xdvdfs, sniff as sniff_xdvdfs
+from substratum.formats.zip import normalize_zip, sniff as sniff_zip
 
 NormalizeResult = ByteView | FileTree
 Normalizer = Callable[[object], NormalizeResult]
@@ -98,6 +99,7 @@ _FORMATS = (
     _Format("wii-fst", sniff_wii_fst, normalize_wii_fst),
     _Format("chd", sniff_chd, normalize_chd),
     _Format("cso", sniff_cso, normalize_cso),
+    _Format("zip", sniff_zip, normalize_zip),
     _Format("gc-fst", sniff_gc_fst, normalize_gc_fst),
     _Format("wii-u8-arc", sniff_wii_u8_arc, normalize_wii_u8_arc),
     _Format("xdvdfs", sniff_xdvdfs, normalize_xdvdfs),
