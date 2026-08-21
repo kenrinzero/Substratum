@@ -3,10 +3,11 @@
 Returns exactly ONE layer — a ByteView of the decompressed disc.
 Never recurses into inner filesystems (caller composes, DESIGN.md §1).
 
-Decompression delegates to chdman via `extractcd`; the output .bin is
-the original 2048-byte-sector ISO. Source checkouts carry chdman 0.288
-(mame0288), while installed packages may select an executable explicitly
-or discover one on PATH.
+Decompression delegates to chdman, dispatched by the CHD's metadata tag:
+DVD-tagged images use `extractdvd`, everything else `extractcd`. The
+output .bin is the decompressed disc image. Source checkouts carry
+chdman 0.288 (mame0288), while installed packages may select an
+executable explicitly or discover one on PATH.
 
 Runtime is stdlib-only per DESIGN.md § 4.
 """
@@ -117,7 +118,7 @@ def _chd_tag(chd_path: Path) -> str | None:
             check=True,
             timeout=_CHDMAN_TIMEOUT_SECONDS,
         )
-    except (subprocess.CalledProcessError, OSError, TimeoutError):
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
         return None
     for line in info.stdout.splitlines():
         if "Metadata:" not in line:

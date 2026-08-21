@@ -152,6 +152,38 @@ def test_chd_dispatches_by_media_tag(monkeypatch, tmp_path, tag, command):
         view.source.close()
 
 
+def test_metadata_probe_timeout_falls_back_to_cd_extraction(monkeypatch, tmp_path):
+    """A `chdman info` timeout must take the CD fallback, not abort.
+
+    Regression for the dead `TimeoutError` arm (AUDIT-2026-08-21 entry 1):
+    subprocess timeouts raise `subprocess.TimeoutExpired`, which is neither
+    a builtin `TimeoutError` nor an `OSError`.
+    """
+    chd_path = tmp_path / "game.chd"
+    chd_path.write_bytes(b"MComprHD")
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        if cmd[1] == "info":
+            raise subprocess.TimeoutExpired(cmd, timeout=1)
+        assert cmd[1] == "extractcd", f"unexpected chdman command: {cmd}"
+        out = Path(cmd[cmd.index("-o") + 1])
+        out.write_text("FILE \"extracted.bin\" BINARY\n", encoding="utf-8")
+        out.with_suffix(".bin").write_bytes(b"raw-image")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(chd_module, "_chdman_exe", lambda: tmp_path / "chdman.exe")
+    monkeypatch.setattr(chd_module.subprocess, "run", fake_run)
+
+    view = chd_module.normalize_chd(chd_path)
+    try:
+        assert seen["cmd"][1] == "extractcd"
+        assert view.source.read_at(0, len(b"raw-image")) == b"raw-image"
+    finally:
+        view.source.close()
+
+
 def test_chdman_environment_override_is_authoritative(tmp_path, monkeypatch):
     override = tmp_path / "custom-chdman.exe"
     override.write_bytes(b"test executable")

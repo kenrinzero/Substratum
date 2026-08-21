@@ -1,8 +1,9 @@
 """Gate tests for the Xbox XDVDFS filesystem normalizer (NORMALIZERS.md row `xdvdfs`).
 
 The expected manifest was authored by seedtools/make_xdvdfs_fixture.py.
-Since the design spec recommends D1 = structural self-consistency, the
-fixture uses a synthetic tier-1 image and no external differential tooling.
+The synthetic tier-1 image is checked by structural self-consistency
+(D1); since 2026-08-20 the row also carries a retail differential proof
+(xdvdfs-rs 0.9.0) on a locally staged XGD1 image.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ TOOLS = {
 
 RETAIL_IMAGE = ROOT / "fixtures" / "_local" / "Jade Empire (Japan).iso"
 RETAIL_BASE_OFFSET = 0x18300000
+ORACLE_TIMEOUT_SECONDS = 600
 
 
 def _xdvdfs_exe() -> Path | None:
@@ -42,7 +44,7 @@ def _xdvdfs_exe() -> Path | None:
         candidate = Path(env_path)
         if candidate.exists():
             return candidate
-    candidate = Path(r"C:\Users\kenrin\Downloads\_tools\xdvdfs-rs\target\release\xdvdfs.exe")
+    candidate = ROOT / "tools" / "xdvdfs" / "xdvdfs.exe"
     if candidate.exists():
         return candidate
     return None
@@ -141,6 +143,7 @@ def test_retail_jade_empire_matches_xdvdfs_oracle(tmp_path):
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        timeout=ORACLE_TIMEOUT_SECONDS,
     )
 
     oracle = {

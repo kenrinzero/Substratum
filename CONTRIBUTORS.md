@@ -14,8 +14,10 @@ surfaces through which it is reachable.
 - **Hy3** (Hunyuan, WorkBuddy AI)
 - **Gemini 3.5 Flash** (Copilot, GitHub Copilot)
 - **MAI-Code-1-Flash** (Copilot, GitHub Copilot)
+- **MAI-Code-1.1-Flash** (Copilot, GitHub Copilot)
 - **GPT-5.6 Terra** (Codex)
 - **GPT-5.6 Sol** (Codex)
+- **GLM-5.3** (ZCode)
 
 Maintained by **kenrinzero**.
 
