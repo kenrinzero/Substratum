@@ -31,6 +31,6 @@ normalizer re-validates them by composing the decrypted ByteView through
 handles neither the CIA nor a raw 7.x-seed slice), so the protected-hash
 anchor carries the correctness proof on its own.
 
-Only this provenance and `expected.manifest.json` enter Git. The decrypted
+Only this provenance and `anchor.json` enter Git. The decrypted
 region references stay local and ignored. No seeddb bytes or decrypted retail
 payloads enter git.

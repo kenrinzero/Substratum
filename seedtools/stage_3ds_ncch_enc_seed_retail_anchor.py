@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -198,7 +197,7 @@ def main() -> None:
         ],
     }
     text = json.dumps(manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    manifest_path = output / "expected.manifest.json"
+    manifest_path = output / "anchor.json"
     manifest_path.write_bytes((text + "\n").encode("ascii"))
     print(f"validated {cia.name}: 7.x-seed, content 0x{content_size:x}")
     print(f"manifest -> {manifest_path}")

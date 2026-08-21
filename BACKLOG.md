@@ -480,11 +480,13 @@ NCCH crypto method): see
       through the gc-fst composition, 847 files / 64 dirs) + the
       seedtool-pinned view sha256 re-derived through the normalizer.
 
-- [ ] **`F:\game` corpus formats — WBFS / GCZ / NKit as follow-ons;
+- [x] **`F:\game` corpus formats — WBFS / GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples; SAMPLES STAGED
       2026-08-21, dispatch order settled `gcz` → `wbfs` → `nkit`, `ciso` as a
-      sibling, `wux` parked — **gcz/wbfs/nkit/ciso ALL DONE 2026-08-21; only
-      the `wux` platform decision remains open**):** the operator staged five samples in
+      sibling — **FULLY RESOLVED 2026-08-21: `gcz` (0.0.24), `wbfs` (0.0.25),
+      `nkit` (0.0.26) and `ciso` (0.0.27) all shipped GREEN, and the `wux`
+      platform call was resolved the same day (out of scope — see the next
+      item). Nothing in this item is open**):** the operator staged five samples in
       `C:\Users\kenrin\Downloads\fixtures` (headers verified): Beach Spikers
       `.gcz` (GC), Ghost Squad (Europe) `.wbfs` (Wii — the JP `.rvz` anchor is
       the same title, giving a cross-region differential), Yu-Gi-Oh! The

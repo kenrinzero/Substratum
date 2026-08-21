@@ -32,7 +32,6 @@ import struct
 import tempfile
 import weakref
 import zlib
-from pathlib import Path
 
 from substratum.contract import ByteSource, FileEntry, FileSource, FileTree
 
@@ -314,7 +313,10 @@ def _parse_central(src: ByteSource, size: int) -> list[dict]:
             raise ValueError(f"member {path!r} local method disagrees with central")
         if (l_flags & _FLAG_UTF8) != (flags & _FLAG_UTF8):
             raise ValueError(f"member {path!r} local flags disagree with central")
-        if not flags & _FLAG_DESCRIPTOR:
+        # Streaming-style members carry zeroed local sizes and a PK\x07\x08
+        # data descriptor after the payload, so the local-vs-central size
+        # cross-check only applies when the descriptor flag is clear.
+        if (flags & _FLAG_DESCRIPTOR) == 0:
             if l_csize == _SENTINEL32 or l_usize == _SENTINEL32:
                 l_usize, l_csize = _apply_zip64_extra_local(
                     src.read_at(offset + 30 + l_nlen, l_elen)
@@ -401,7 +403,10 @@ def sniff(source: ByteSource) -> bool:
         if count > 0:
             if struct.unpack("<I", source.read_at(cd_off, 4))[0] != _CD_SIG:
                 return False
-    except (ValueError, OSError):
+    # struct.error is NOT a ValueError subclass — a short read from a
+    # ByteSource that returns fewer bytes than asked would escape the sniff
+    # and abort the whole dispatch loop instead of falling through.
+    except (ValueError, OSError, struct.error):
         return False
     return True
 

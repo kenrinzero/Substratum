@@ -172,6 +172,6 @@ def test_mini_sports_decrypts_and_matches_reference(seeddb_env):
 
 @skip_if_no_boxboy
 def test_boxboy_manifest_records_pinned_oracle():
-    doc = json.loads((BOXBOY_DIR / "expected.manifest.json").read_text("ascii"))
+    doc = json.loads((BOXBOY_DIR / "anchor.json").read_text("ascii"))
     assert doc["identity"]["crypto"].startswith("7.x-seed")
     assert doc["tool_versions"]["ctrtool"] == "CTRTool v1.3.0 (C) jakcron"

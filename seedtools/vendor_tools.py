@@ -430,11 +430,18 @@ NKIT_VERSION = "1.4"
 NKIT_URL = "https://gbatemp.net/download/nkit.36157/download?version=36607"
 NKIT_REFERER = "https://gbatemp.net/download/nkit.36157/"
 NKIT_ZIP_SHA256 = "e600b0a2dbacf784779ce33b01259f197c5f8cfc7135f1831160d3f98bb431c6"
+# Executable-level pin, same discipline as every other vendored tool. The zip
+# pin alone only covers the fetch path; without this the "already vendored"
+# fast path below accepted whatever ConvertToISO.exe happened to be on disk —
+# and this is the one tool whose source is a referer-gated forum download.
+# AGENTS.md section 5: a re-run on a drifted binary must fail loudly.
+NKIT_EXE_SHA256 = "6e83642de8a8bb8143a82c60061e7df4d769179ea17628842f4f19c3aab17bc8"
 
 
 def vendor_nkit() -> None:
     exe = TOOLS / "nkit" / "ConvertToISO.exe"
     if exe.is_file():
+        check_pin(exe, NKIT_EXE_SHA256, "nkit exe")
         print("nkit already vendored (tools/nkit/ConvertToISO.exe present)")
         return
     zpath = DL / "nkit-1.4.zip"
@@ -460,6 +467,7 @@ def vendor_nkit() -> None:
         zf.extractall(dest)
     if not exe.is_file():
         raise SystemExit("ConvertToISO.exe not found after extraction")
+    check_pin(exe, NKIT_EXE_SHA256, "nkit exe")
     # non-interactive CLI: the shipped config waits for a key on exit
     cfg = dest / "NKit.dll.config"
     s = cfg.read_text(encoding="utf-8-sig")
@@ -472,6 +480,7 @@ def vendor_nkit() -> None:
     cfg.write_text(s2, encoding="utf-8", newline="")
     print(f"nkit OK: {NKIT_VERSION} (ConvertToISO.exe)")
     print(f"  zip sha256 {NKIT_ZIP_SHA256}")
+    print(f"  exe sha256 {NKIT_EXE_SHA256}")
 
 
 def main() -> None:

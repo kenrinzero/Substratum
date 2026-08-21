@@ -100,7 +100,14 @@ def _parse_header(src: ByteSource, size: int):
 
 
 def _verify_hash_tree(src: ByteSource, mht_off, mhs, data_off, s_data, l0_off, s0, l1_off, s1, block):
-    """Eagerly verify master <- L0 <- L1 <- data. Streaming, bounded RSS."""
+    """Eagerly verify master <- L0 <- L1 <- data.
+
+    The *data* level — the large one — is read a block at a time and never
+    materialized. The two hash tables are held whole, which is O(data/block)
+    of 0x20-byte digests, not O(data): ~32 MB for a 4 GB RomFS at 4 KiB
+    blocks. Well inside the conftest peak-RSS budget, but not "streaming" —
+    a much smaller block size on a very large region would grow it.
+    """
     l0 = src.read_at(l0_off, s0)
     mht = src.read_at(mht_off, mhs)
     for i in range(len(mht) // 0x20):
@@ -236,7 +243,7 @@ def _walk(tables: _Tables, data_off: int, s_data: int) -> list[FileEntry]:
             if off in seen:
                 raise ValueError(f"cyclic directory sibling chain at {off:#x}")
             seen.add(off)
-            c_parent, _c_sib, _c_child, _c_file, c_raw = tables.dir_entry(off)
+            c_parent, c_sibling, _c_child, _c_file, c_raw = tables.dir_entry(off)
             if c_parent != dir_off:
                 raise ValueError(
                     f"directory at {off:#x} claims parent {c_parent:#x}, walker is in {dir_off:#x}"
@@ -245,7 +252,7 @@ def _walk(tables: _Tables, data_off: int, s_data: int) -> list[FileEntry]:
             path = f"{prefix}/{name}" if prefix else name
             emit(path, "dir", 0, 0)
             walk_dirs(off, path)
-            off = tables.dir_entry(off)[1]
+            off = c_sibling
 
     walk_dirs(0, "")
     if not entries:
@@ -260,7 +267,10 @@ def sniff(source: ByteSource) -> bool:
         return False
     try:
         _parse_header(source, source.size())
-    except (ValueError, OSError):
+    # struct.error is NOT a ValueError subclass — a short read from a
+    # ByteSource that returns fewer bytes than asked would escape the sniff
+    # and abort the whole dispatch loop instead of falling through.
+    except (ValueError, OSError, struct.error):
         return False
     return True
 

@@ -86,6 +86,15 @@ class _Format:
 # precede PS1's path-bound BIN/CUE check because both use the CD sync pattern.
 _FORMATS = (
     _Format("3ds-cci", sniff_3ds_cci, normalize_3ds_cci),
+    # `cia` MUST precede `3ds-ncch-enc-seed`, and the consequence is stronger
+    # than an ordering preference: the seed sniffer's test is "a valid CIA
+    # whose content NCCH magic is NOT plaintext", so it only ever claims
+    # CIAs — and `cia` claims every one of those first. **`3ds-ncch-enc-seed`
+    # is therefore unreachable by auto-detection and is a pin-only /
+    # composition unit** (`normalize(src, format="3ds-ncch-enc-seed")`), which
+    # is the documented consumption path anyway: the caller walks the CIA,
+    # then decrypts the content it selected. Verified on the synthetic CIA and
+    # both retail eShop anchors; pinned by test_normalize_api.py.
     _Format("cia", sniff_3ds_cia, normalize_3ds_cia),
     _Format("3ds-ncch-enc-seed", sniff_3ds_ncch_enc_seed, normalize_3ds_ncch_enc_seed),
     # New3DS 9.6/9.3 must precede both the standard encrypted and the decrypted

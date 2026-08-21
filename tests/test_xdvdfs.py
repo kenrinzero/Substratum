@@ -279,10 +279,17 @@ def test_file_out_of_bounds_refused(tmp_path):
 
 
 def test_truncated_refused(tmp_path):
+    """A truncated image is refused by the entry whose range runs past EOF.
+
+    The message names that entry and its range. It previously said
+    "descriptor exceeds source size" — chosen by a `file_size <= _SECTOR * 4`
+    branch, i.e. by payload size rather than by cause, which reported a
+    truncated *file* as a *descriptor* problem.
+    """
     bad = tmp_path / "bad-truncated.xiso"
     data = IMAGE.read_bytes()[:-0x800]
     bad.write_bytes(data)
-    with pytest.raises(ValueError, match="descriptor"):
+    with pytest.raises(ValueError, match=r"file '.+' range \[\d+, \d+\) exceeds source size"):
         normalize_xdvdfs(bad)
 
 

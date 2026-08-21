@@ -24,11 +24,20 @@ from substratum.formats._dolphin import (
 __all__ = ["sniff", "normalize_rvz"]
 
 
+_RVZ_MAGIC = b"RVZ\x01"
+
+
 def sniff(source: ByteSource) -> bool:
-    """True when the source starts with the RVZ magic 'RVZ'."""
-    if source.size() < 4:
+    """True when the source starts with the RVZ magic b'RVZ\\x01'.
+
+    All four bytes are checked. The version byte is part of the magic
+    (verified on the GT Cube and Ghost Squad anchors, both `52 56 5a 01`);
+    matching only `RVZ` left a 3-byte signature with no corroboration,
+    against the house rule recorded in `nkit.py`.
+    """
+    if source.size() < len(_RVZ_MAGIC):
         return False
-    return source.read_at(0, 3) == b"RVZ"
+    return source.read_at(0, len(_RVZ_MAGIC)) == _RVZ_MAGIC
 
 
 def normalize_rvz(source) -> ByteView:

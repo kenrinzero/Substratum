@@ -67,17 +67,26 @@ def wii_view():
 def test_sniff():
     assert sniff(FileSource(GC_RVZ)) if GC_RVZ.is_file() else True
     # synthetic RVZ header
-    from pathlib import Path as P
-    import tempfile
     with tempfile.NamedTemporaryFile(suffix=".rvz", delete=False) as f:
         f.write(b"RVZ\x01\x00\x00\x00" + b"\x00" * 100)
-        tmp = P(f.name)
+        tmp = Path(f.name)
     try:
         assert sniff(FileSource(tmp))
     finally:
         tmp.unlink()
     assert not sniff(FileSource(ROOT / "fixtures" / "toy" / "toy.bin"))
     assert not sniff(FileSource(ROOT / "fixtures" / "iso9660" / "supertux" / "supertux.iso"))
+
+    # The version byte is part of the magic: 'RVZ' alone must not claim the
+    # source (a 3-byte signature with no corroboration). Both retail anchors
+    # carry 52 56 5a 01.
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+        f.write(b"RVZ\x02" + b"\x00" * 100)
+        wrong_version = Path(f.name)
+    try:
+        assert not sniff(FileSource(wrong_version))
+    finally:
+        wrong_version.unlink()
 
 
 def test_returns_byteview(gc_view):

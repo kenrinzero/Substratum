@@ -82,11 +82,22 @@ class ByteView:
 
 @dataclass(slots=True, frozen=True)
 class FileEntry:
-    """Eager metadata for one tree entry; bytes stay lazy."""
+    """Eager metadata for one tree entry; bytes stay lazy.
+
+    `offset`/`size` are load-bearing for `kind == "file"` only. For
+    `kind == "dir"` they are **format-dependent and not validated by the
+    gate**: a walker whose format records a real on-media directory extent
+    may report it (ISO9660 does — and every format composed through it:
+    chd, cso, ciso, ps1-bincue, saturn-dc-raw), while FST/table-style
+    walkers with no such record report `(0, 0)` (gc-fst, wii-fst,
+    wii-u8-arc, xdvdfs, 3ds-romfs, zip). Consumers must not assume either
+    convention; `verify.run_checks` bounds-checks and byte-diffs files
+    only, so a directory's range carries no proof obligation.
+    """
 
     path: str  # posix-style, relative, no leading slash
     kind: str  # "file" | "dir"
-    offset: int  # byte range into the underlying source (0 for dirs)
+    offset: int  # byte range into the underlying source; see the note above
     size: int
 
 

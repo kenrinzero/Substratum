@@ -138,9 +138,10 @@ def _walk_table(
     else:
         absolute_offset = base_offset + start_sector * _SECTOR
         if absolute_offset + file_size > src_size:
-            if file_size <= _SECTOR * 4:
-                raise ValueError("descriptor exceeds source size")
-            raise ValueError(f"file {name!r} range exceeds source size")
+            raise ValueError(
+                f"file {name!r} range [{absolute_offset}, "
+                f"{absolute_offset + file_size}) exceeds source size {src_size}"
+            )
         entries.append(
             FileEntry(path=path, kind="file", offset=absolute_offset, size=file_size)
         )

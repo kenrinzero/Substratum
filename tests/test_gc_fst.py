@@ -34,7 +34,7 @@ REFERENCE = FIXTURE / "reference"
 
 # Nested fixture (proof-strengthening): built on demand by the seedtool
 # because the ~1.4 GiB image is gitignored. See the design spec at
-# docs/superpowers/specs/2026-07-22-gc-fst-nested-fixture-design.md.
+# docs/specs/2026-07-22-gc-fst-nested-fixture-design.md.
 NESTED = ROOT / "fixtures" / "gc_fst" / "nested"
 NESTED_ISO = NESTED / "game.iso"
 NESTED_REFERENCE = NESTED / "reference"
@@ -225,7 +225,7 @@ _NODE_SIZE = 0x0C
 
 # ---------------------------------------------------------------------------
 # Nested-directory fixture (proof-strengthening — see design spec
-# docs/superpowers/specs/2026-07-22-gc-fst-nested-fixture-design.md).
+# docs/specs/2026-07-22-gc-fst-nested-fixture-design.md).
 # The flat Hulk fixture above cannot exercise the recursive FST traversal;
 # this block adds a hand-authored nested FST (4 files, 2 dirs) with a genuine
 # wit two-party differential on nested bytes.

@@ -237,8 +237,8 @@ def main() -> None:
         ],
     }
     text = json.dumps(manifest, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    (OUTPUT / "expected.manifest.json").write_bytes((text + "\n").encode("ascii"))
-    print(f"manifest -> {OUTPUT / 'expected.manifest.json'}")
+    (OUTPUT / "anchor.json").write_bytes((text + "\n").encode("ascii"))
+    print(f"manifest -> {OUTPUT / 'anchor.json'}")
     print(f"content reference (gitignored) -> {reference}")
 
 

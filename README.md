@@ -155,8 +155,9 @@ channel, submode, and coding fields are the normalization boundary.
 
 ## Installation posture
 
-Substratum currently targets Python 3.13+ and is maintained as a
-local-only source project (no Git remote or published package yet):
+Substratum currently targets Python 3.13+ and is developed in the open at
+[github.com/kenrinzero/Substratum](https://github.com/kenrinzero/Substratum).
+It is not published to PyPI; install from a checkout:
 
 ```powershell
 uv sync

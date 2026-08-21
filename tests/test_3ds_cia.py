@@ -363,7 +363,7 @@ def test_duplicate_content_index_is_structural_red(tmp_path):
 
 @skip_if_no_retail_anchor
 def test_retail_manifest_records_pinned_oracle():
-    doc = json.loads((RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii"))
+    doc = json.loads((RETAIL_FIXTURE / "anchor.json").read_text("ascii"))
     assert doc["identity"]["title_id"] == "0004000000043e00"
     assert doc["tool_versions"]["ctrtool"] == "CTRTool v1.3.0 (C) jakcron"
     section_paths = {s["path"] for s in doc["sections"]}
@@ -395,11 +395,11 @@ def test_wrong_slice_mutant_dies_at_manifest_or_fidelity():
         )
         return FileTree(tree.source, tree.format, tuple(entries))
 
-    doc = json.loads((RETAIL_FIXTURE / "expected.manifest.json").read_text("ascii"))
+    doc = json.loads((RETAIL_FIXTURE / "anchor.json").read_text("ascii"))
     problems = run_checks(
         normalize_mutant,
         RETAIL_CIA,
-        RETAIL_FIXTURE / "expected.manifest.json",
+        RETAIL_FIXTURE / "anchor.json",
         RETAIL_REFERENCE,
         RETAIL_CIA.name,
         doc["source"]["sha256"],

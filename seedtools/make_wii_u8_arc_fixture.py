@@ -7,7 +7,6 @@ the reference/ directory with files.
 """
 
 import hashlib
-import json
 import struct
 import sys
 from pathlib import Path

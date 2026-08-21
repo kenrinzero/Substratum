@@ -2,7 +2,7 @@
 """Build a nested-directory GameCube FST fixture (S2 proof-strengthening).
 
 This is the "recipe" for fixtures/gc_fst/nested/ per the design spec
-(docs/superpowers/specs/2026-07-22-gc-fst-nested-fixture-design.md). It
+(docs/specs/2026-07-22-gc-fst-nested-fixture-design.md). It
 materializes a complete GC disc image with a hand-authored *nested* FST,
 then derives the expected manifest from wit's independent decode of that
 FST (never from substratum's own parser — AGENTS.md § 3 independence).

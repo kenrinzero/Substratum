@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -208,14 +207,14 @@ def main() -> None:
         "layout": "GC/Wii decrypted DATA partition (yagcd/wiibrew)",
         "samples": sorted(entries, key=lambda e: e["decrypted_offset"]),
     }
-    (OUTPUT / "expected.manifest.json").write_text(
+    (OUTPUT / "anchor.json").write_text(
         json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="ascii"
     )
     sample_bytes = sum(e["size"] for e in entries)
     print(
         f"staged Munchables DATA partition proof:\n"
         f"  {len(entries)} sampled regions, {sample_bytes} reference bytes\n"
-        f"  manifest -> {OUTPUT / 'expected.manifest.json'}\n"
+        f"  manifest -> {OUTPUT / 'anchor.json'}\n"
         f"  reference bytes (gitignored) -> {reference}"
     )
 

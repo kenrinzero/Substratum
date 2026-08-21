@@ -58,7 +58,7 @@ TEST_KEY = SYNTHETIC / "test-common-key.bin"
 
 RETAIL = ROOT / "fixtures" / "wii_partition" / "munchables"
 RETAIL_REFERENCE = RETAIL / "reference"
-RETAIL_MANIFEST = RETAIL / "expected.manifest.json"
+RETAIL_MANIFEST = RETAIL / "anchor.json"
 ISO = ROOT / "fixtures" / "_local" / "The Munchables (USA).iso"
 COMMON_KEY = ROOT / "fixtures" / "_local" / "wii-common-key.bin"
 

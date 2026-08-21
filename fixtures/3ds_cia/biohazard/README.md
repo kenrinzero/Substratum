@@ -23,6 +23,6 @@ directly from the CIA at the computed offset) hashes to that exact value
 (`bb6a9bfd…`). The runtime normalizer recomputes and compares this hash
 independently of the seedtool's value.
 
-Only this provenance and `expected.manifest.json` enter Git. The on-media
+Only this provenance and `anchor.json` enter Git. The on-media
 content blob (encrypted retail bytes) stays local and ignored. The content is
 opaque to this layer — a caller composes `3ds-ncch-enc` to decrypt it.

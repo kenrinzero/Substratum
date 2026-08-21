@@ -268,7 +268,6 @@ def test_mislabeled_beach_spikers_routes_to_gc_fst():
     assert not sniff(FileSource(BEACH))
     tree = dispatch_normalize(BEACH)
     try:
-        assert isinstance(tree, object)  # FileTree; gc-fst walked it
         assert len(tree.entries) == 1224
     finally:
         source = getattr(tree, "source", None)

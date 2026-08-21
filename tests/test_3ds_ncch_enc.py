@@ -49,7 +49,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SYNTHETIC = ROOT / "fixtures" / "3ds_ncch_enc" / "synthetic" / "decrypted.ncch"
 
 RETAIL = ROOT / "fixtures" / "3ds_ncch_enc" / "biohazard"
-RETAIL_MANIFEST = RETAIL / "expected.manifest.json"
+RETAIL_MANIFEST = RETAIL / "anchor.json"
 RETAIL_REFERENCE = RETAIL / "reference"
 CIA = ROOT / "fixtures" / "_local" / "Biohazard - The Mercenaries 3D (Japan).cia"
 
@@ -61,7 +61,7 @@ P7X_CCI = (
     / "3DS1333 - Kobayashi ga Kawai Sugite Tsurai!! Game Demo Kyun Moe MAX ga Tomara Nai (Japan).3ds"
 )
 P7X_RETAIL = ROOT / "fixtures" / "3ds_ncch_enc" / "kobayashi"
-P7X_MANIFEST = P7X_RETAIL / "expected.manifest.json"
+P7X_MANIFEST = P7X_RETAIL / "anchor.json"
 P7X_REFERENCE = P7X_RETAIL / "reference"
 
 # NCCH header field offsets (mirror the normalizer).

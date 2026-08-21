@@ -31,7 +31,11 @@
         "properties": {
           "path": { "type": "string", "minLength": 1, "pattern": "^[^/]" },
           "kind": { "enum": ["file", "dir"] },
-          "offset": { "type": "integer", "minimum": 0 },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Byte range start in the source. Normative for kind=file. For kind=dir it is format-dependent and not gate-validated: walkers whose format records a real directory extent report it (ISO9660 and everything composed through it), others report 0. Consumers must not rely on either convention."
+          },
           "size": { "type": "integer", "minimum": 0 }
         }
       }

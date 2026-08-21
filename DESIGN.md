@@ -44,6 +44,15 @@ Normative code: `substratum/contract.py`. Shape:
   into the underlying source) with **lazy byte access**
   (`tree.open(entry) -> SliceSource`, `tree.read(entry) -> bytes`).
   Nothing is materialized; downstream reads go through the source.
+  **Directory ranges are format-dependent (clarified 2026-08-21, no code
+  or manifest change).** `offset`/`size` are normative for `kind ==
+  "file"` only. A walker whose format records a real on-media directory
+  extent may report it — ISO9660 does, and so therefore does everything
+  composed through it (chd, cso, ciso, ps1-bincue, saturn-dc-raw) — while
+  FST/table-style walkers with no such record report `(0, 0)` (gc-fst,
+  wii-fst, wii-u8-arc, xdvdfs, 3ds-romfs, zip). The gate bounds-checks and
+  byte-diffs **files only** (§ 3), so a directory range carries no proof
+  obligation and consumers must not rely on either convention.
 - **`normalize(source, *, format=None) -> ByteView | FileTree`** — accepts
   a path or a `ByteSource`; auto-detects via each registered normalizer's
   `sniff()` unless `format` pins it.

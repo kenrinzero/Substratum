@@ -45,13 +45,10 @@ _META_HDR = 0x28
 _DATA_OFF = 0x1000
 _CHK_SEED = 0x123456789
 
-FILES = [
-    ("README.TXT", b"Substratum synthetic 3DS RomFS fixture. Authored by seedtools/make_3ds_romfs_fixture.py.\n"),
-    ("DATA/A.BIN", None),   # chain blobs, sizes fixed below
-    ("DATA/B.BIN", None),
-    ("DATA/EMPTY.BIN", b""),
-    ("DATA/SUB/C.DAT", None),
-]
+_FILES_README = (
+    b"Substratum synthetic 3DS RomFS fixture. "
+    b"Authored by seedtools/make_3ds_romfs_fixture.py.\n"
+)
 DIRS = ["DATA", "DATA/SUB"]  # depth-first after root
 
 
@@ -65,7 +62,7 @@ def _blob(tag: bytes, size: int) -> bytes:
 
 
 FILES = [
-    ("README.TXT", FILES[0][1]),
+    ("README.TXT", _FILES_README),
     ("DATA/A.BIN", _blob(b"substratum-3dsromfs-a", _BLOCK)),   # exactly one hash block
     ("DATA/B.BIN", _blob(b"substratum-3dsromfs-b", 2048)),
     ("DATA/EMPTY.BIN", b""),

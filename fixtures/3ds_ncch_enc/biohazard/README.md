@@ -28,6 +28,6 @@ The NCCH header's declared SHA-256 protected hashes provide the independent
 **correctness** anchor: the decrypted image is fed back through `three_ds_ncch`,
 which validates those hashes — a wrong decryption fails them.
 
-Only this provenance and `expected.manifest.json` enter Git. The independently
+Only this provenance and `anchor.json` enter Git. The independently
 decrypted region references stay local and ignored. No key bytes or decrypted
 retail payloads are committed.
