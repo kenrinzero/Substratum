@@ -63,6 +63,7 @@ from substratum.formats.wii_u8_arc import (
     sniff as sniff_wii_u8_arc,
 )
 from substratum.formats.rvz import normalize_rvz, sniff as sniff_rvz
+from substratum.formats.gcz import normalize_gcz, sniff as sniff_gcz
 from substratum.formats.xdvdfs import normalize_xdvdfs, sniff as sniff_xdvdfs
 from substratum.formats.zip import normalize_zip, sniff as sniff_zip
 
@@ -107,6 +108,10 @@ _FORMATS = (
     _Format("cso", sniff_cso, normalize_cso),
     _Format("zip", sniff_zip, normalize_zip),
     _Format("rvz", sniff_rvz, normalize_rvz),
+    # GCZ's magic (0xB10BC001 at 0) cannot collide with a disc header, but it
+    # stays beside rvz and ahead of gc-fst so both Dolphin containers sit
+    # before any raw-image sniffer that might see a decoded/odd cousin.
+    _Format("gcz", sniff_gcz, normalize_gcz),
     _Format("gc-fst", sniff_gc_fst, normalize_gc_fst),
     _Format("wii-u8-arc", sniff_wii_u8_arc, normalize_wii_u8_arc),
     _Format("xdvdfs", sniff_xdvdfs, normalize_xdvdfs),

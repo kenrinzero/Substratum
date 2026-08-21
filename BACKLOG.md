@@ -7,7 +7,10 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.23** is clean (the `rvz` container landed 2026-08-21, after `chd` retail closure on 0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **20 normalizers** are GREEN:
+Version **0.0.24** is clean (the `gcz` container landed 2026-08-21 over a
+shared-DolphinTool refactor, after `rvz` on 0.0.23, `chd` retail closure on
+0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **21 normalizers** are
+GREEN:
 the keyless/decrypted floor, the complete Wii chain, the CIA container, the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
 no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
@@ -379,23 +382,61 @@ and the two-key finding in
 
 - [x] **`rvz` — GC/Wii Dolphin RVZ container (F:\game corpus formats — RVZ; DONE 2026-08-21, 0.0.23):** `substratum/formats/rvz.py` returns a `ByteView` of the Dolphin-decoded ISO (`DolphinTool 2606a` `dolphin-tool convert --format iso`, block `131072` `zstd:5`); `GT Cube (Japan).rvz` (GC, 273 MB → 1,459,978,240 bytes, 661 `gc-fst` files) and `Ghost Squad (Japan).rvz` (Wii, 374 MB → 4,699,979,776 bytes, 2 `wii-disc` partitions) both staged in `fixtures/_local/` (gitignored) and proven via `DolphinTool` + `wit` second reader; gate `444 passed`. Closes the `zip → rvz` chain for the 2,573-title GC+Wii corpus. `WBFS`/`GCZ`/`NKit` remain as follow-ons (operator-gated).
 
+- [x] **`gcz` — Dolphin's legacy CompressedBlob GC/Wii container (F:\game
+      follow-on; DONE 2026-08-21, 0.0.24):** `substratum/formats/gcz.py`
+      returns a `ByteView` of the DolphinTool-decoded ISO (magic
+      `0xB10BC001`; the DolphinTool plumbing now lives in
+      `substratum/formats/_dolphin.py`, shared with `rvz`). wit cannot read
+      GCZ (`WRONG FILE TYPE`, recorded), so the container differential is a
+      **spec-derived pure-Python block decoder in `tests/test_gcz.py`**
+      (32-byte LE header, `u64[num]` offsets with bit-63 stored-raw flag,
+      `u32[num]` hash array, zlib blocks — size arithmetic closes to the
+      byte on both anchors), agreeing with DolphinTool on head/mid/tail
+      1 MiB windows; the full-disc `iso → gcz → decode` round-trip is
+      sha256-identical. Anchors: `GT Cube (Japan).gcz` (GC, written by
+      pinned DolphinTool from the staged retail `.rvz` — 661 `gc-fst`
+      files) + `Ghost Squad (Japan).gcz` (Wii sub_type 1, 2 `wii-disc`
+      partitions) + the operator-staged **mislabeled** Beach Spikers
+      `.gcz` as the sniff/dispatch regression (a compacted raw GC ISO —
+      see the follow-on item below). `F:\game` holds no GCZ titles
+      (GC/Wii are `.rvz`): this unit is emulator-family completeness.
+
 - [ ] **`F:\game` corpus formats — WBFS / GCZ / NKit as follow-ons;
-      Stratum Unit 4 prerequisite, operator-gated samples):** Stratum's
-      eventual operator-run corpus sweep (its BACKLOG Unit 4) targets
-      `F:\game`, which is **decrypted emulator-optimized formats — not raw
-      disc images** (RVZ/WBFS for Wii, GCZ/NKit for GC/Wii). None of these
-      normalize today, so a sweep over the real corpus would skip most of
-      it. Each format is its own normalizer unit with its own differential
-      oracle (RVZ is Dolphin's own container → the Dolphin CLI; WBFS and
-      GCZ → wit where applicable; NKit → the NKit tool), following the
+      Stratum Unit 4 prerequisite, operator-gated samples; SAMPLES STAGED
+      2026-08-21, dispatch order settled `gcz` → `wbfs` → `nkit`, `ciso` as a
+      sibling, `wux` parked):** the operator staged five samples in
+      `C:\Users\kenrin\Downloads\fixtures` (headers verified): Beach Spikers
+      `.gcz` (GC), Ghost Squad (Europe) `.wbfs` (Wii — the JP `.rvz` anchor is
+      the same title, giving a cross-region differential), Yu-Gi-Oh! The
+      Falsebound Kingdom (Europe) `.nkit.iso` (NKit v2), Luigi's Mansion
+      `.ciso` (GC compact ISO — not in the original family; the GREEN `cso`
+      unit also keys on the `CISO` magic, so a sibling unit must
+      disambiguate), and Your Shape FE 2013 `.wux` (**Wii U — a platform
+      Substratum has no chain for and `F:\game` doesn't contain; parked as a
+      new-platform decision, not a follow-on**). **Load-bearing finding
+      (2026-08-21): the staged Beach Spikers `.gcz` is NOT a GCZ** — it is a
+      compacted raw GC ISO mislabeled with the extension: no Dolphin
+      `0xB10BC001` magic anywhere in the file, DolphinTool passthrough-copies
+      it (it sees only the disc header), wit 3.05a refuses it, and the
+      existing `gc-fst` normalizer already walks it cleanly (1,224 files, FST
+      internally consistent to the byte — max file end == file size; loose
+      `adx/bgm_*.adx` content reads as valid ADX, so it is also a Stratum
+      `cri.adx` positive candidate via zero new work). Staged in
+      `fixtures/_local/` as the sniff-dispatch regression anchor. The `gcz`
+      unit therefore targets the **canonical Dolphin GCZ (CompressedBlob)**
+      format: header `magic|sub_type|compressed_data_size u64|disc_size
+      u64|block_size|num_blocks` (32B LE), `u64[num]` block-offset array
+      (MSB = stored-raw block), `u32[num]` decompressed-block hash array,
+      then zlib blocks — empirically characterized against a DolphinTool
+      2606a-created anchor and to be proven by a spec-derived pure-Python
+      block decoder in the tests (wit cannot read GCZ; recorded). Each format
+      is its own normalizer unit with its own differential oracle (RVZ is Dolphin's own container → the Dolphin CLI; WBFS and GCZ → wit where applicable; NKit → the NKit tool), following the
       retail-anchor pattern: small operator-supplied samples staged into
       the gitignored drop zone, provenance + manifest committed, agents
       never reading `F:\game` autonomously. Decide and record up front
       (a) whether to normalize each container directly or define an
       operator pre-conversion path, and (b) the minimum set that makes the
       first 50-title sweep meaningful — RVZ + NKit likely cover the bulk.
-      This family is **not dispatchable until the operator stages
-      samples**; it is recorded here so the dependency is durable.
 
 - [ ] **New3DS 9.3 variant (opportunistic — media-scarce):** `ncchflag[3] ==
       0x0A`, keyslot `0x18`, no seeddb. Tooling-wise this falls out of the 9.6

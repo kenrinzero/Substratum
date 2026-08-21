@@ -232,7 +232,7 @@ wheels = [
 
 [[package]]
 name = "substratum"
-version = "0.0.23"
+version = "0.0.24"
 source = { editable = "." }
 
 [package.dev-dependencies]
