@@ -19,6 +19,7 @@ surfaces through which it is reachable.
 - **GPT-5.6 Sol** (Codex)
 - **GLM-5.3** (ZCode)
 - **Seed-2.1-Turbo** (TRAE)
+- **Claude Opus 5** (Claude, Claude Code)
 
 Maintained by **kenrinzero**.
 
