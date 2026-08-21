@@ -7,11 +7,10 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.25** is clean (the `wbfs` container landed 2026-08-21 via
-wit + a spec-decoder differential, after `gcz` on 0.0.24 over a
-shared-DolphinTool refactor, `rvz` on 0.0.23, `chd` retail closure on
-0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **22 normalizers** are
-GREEN:
+Version **0.0.26** is clean (the `nkit` recovery unit landed 2026-08-21,
+after `wbfs` on 0.0.25, `gcz` on 0.0.24 over a shared-DolphinTool
+refactor, `rvz` on 0.0.23, `chd` retail closure on 0.0.22, `3ds-romfs`
+on 0.0.21 and `zip` on 0.0.20). **23 normalizers** are GREEN:
 the keyless/decrypted floor, the complete Wii chain, the CIA container, the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
 no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
@@ -416,6 +415,28 @@ and the two-key finding in
       `Ghost Squad (Europe).wbfs` (scrubbed — no update partition; the
       JP `.rvz` anchor is the same title unscrubbed). `nkit` remains as
       the last named follow-on.
+
+- [x] **`nkit` — GC NKit recovery (F:\game follow-on, the last named
+      one; DONE 2026-08-21, 0.0.26):** `substratum/formats/nkit.py`
+      returns a `ByteView` of the RECOVERED full-size original via
+      NKit 1.4 (`ConvertToISO.exe`, per-call isolated tool copy — the
+      tool hardcodes `<exe-dir>/Processed`). **Findings:** (1) GC
+      `.nkit.iso` is a compacted GC ISO (real disc header at 0, `NKIT`
+      block at 0x200) whose compacted filesystem `gc-fst` walks at file
+      level (415 files on the anchor) — the unit adds the recovered
+      original for byte fidelity, and its sniffer is registered BEFORE
+      `gc-fst`; (2) NKit 2 is Discord-distributed with no public source
+      — the unit pins NKit 1.4 (zip sha256 cross-pinned against the
+      independent AUR package pin); (3) a verified conversion exits
+      NONZERO on CRC-not-in-dat, so the produced image is the success
+      criterion, never the exit code; (4) `.nkit.gcz` = the compacted
+      image in a Dolphin-GCZ stream → sniffs/decodes via `gcz`
+      (file-level correct; not recovered). Differential: byte-exact
+      retail round-trip (MKDD → nkit → decode, full-disc sha256
+      identical) + tool 3-pass Full Verify + recovered-vs-compacted
+      gc-fst file-map agreement. Anchor: operator-staged Yu-Gi-Oh!
+      Falsebound Kingdom (Europe) `.nkit.iso` (VerifySuccess, MD5/SHA1
+      recorded by the tool).
 
 - [ ] **`F:\game` corpus formats — WBFS / GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples; SAMPLES STAGED

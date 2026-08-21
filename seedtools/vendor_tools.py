@@ -29,6 +29,7 @@ pinned into this file; a later run on drifted bytes then fails loudly.
 
 import hashlib
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -418,6 +419,61 @@ def vendor_dolphin_tool() -> None:
     archive.unlink()
 
 
+# NKit 1.4 (row `nkit`): the last public NKit release (NKit 2 is
+# Discord-distributed with no public source -- recorded in the row). The
+# gbatemp download is referer/UA-gated; the sha256 below is the AUR
+# package's independent pin (aur.archlinux.org/packages/nkit), so two
+# parties agree on the bytes. MIT license (NKitv1 source). The config's
+# WaitForKeyAfterProcessing is flipped to false so the CLI exits without
+# console input; everything else ships as-is.
+NKIT_VERSION = "1.4"
+NKIT_URL = "https://gbatemp.net/download/nkit.36157/download?version=36607"
+NKIT_REFERER = "https://gbatemp.net/download/nkit.36157/"
+NKIT_ZIP_SHA256 = "e600b0a2dbacf784779ce33b01259f197c5f8cfc7135f1831160d3f98bb431c6"
+
+
+def vendor_nkit() -> None:
+    exe = TOOLS / "nkit" / "ConvertToISO.exe"
+    if exe.is_file():
+        print("nkit already vendored (tools/nkit/ConvertToISO.exe present)")
+        return
+    zpath = DL / "nkit-1.4.zip"
+    if not (zpath.is_file() and sha256_of(zpath) == NKIT_ZIP_SHA256):
+        print(f"fetching {NKIT_URL} -> {zpath.name} (referer-gated)")
+        req = urllib.request.Request(
+            NKIT_URL,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": NKIT_REFERER,
+            },
+        )
+        with urllib.request.urlopen(
+            req, timeout=DOWNLOAD_TIMEOUT_SECONDS
+        ) as resp, zpath.open("wb") as out:
+            while chunk := resp.read(1 << 20):
+                out.write(chunk)
+    check_pin(zpath, NKIT_ZIP_SHA256, "nkit zip")
+    dest = TOOLS / "nkit"
+    if dest.exists():
+        shutil.rmtree(dest)
+    with zipfile.ZipFile(zpath) as zf:
+        zf.extractall(dest)
+    if not exe.is_file():
+        raise SystemExit("ConvertToISO.exe not found after extraction")
+    # non-interactive CLI: the shipped config waits for a key on exit
+    cfg = dest / "NKit.dll.config"
+    s = cfg.read_text(encoding="utf-8-sig")
+    s2 = s.replace(
+        'WaitForKeyAfterProcessing" value="true"',
+        'WaitForKeyAfterProcessing" value="false"',
+    )
+    if s2 == s:
+        raise SystemExit("WaitForKeyAfterProcessing patch failed (key moved?)")
+    cfg.write_text(s2, encoding="utf-8", newline="")
+    print(f"nkit OK: {NKIT_VERSION} (ConvertToISO.exe)")
+    print(f"  zip sha256 {NKIT_ZIP_SHA256}")
+
+
 def main() -> None:
     which = set(sys.argv[1:]) or {"chdman", "wit"}
     if "chdman" in which:
@@ -434,6 +490,8 @@ def main() -> None:
         vendor_3dstool()
     if "dolphin-tool" in which or "rvz" in which:
         vendor_dolphin_tool()
+    if "nkit" in which:
+        vendor_nkit()
 
 
 if __name__ == "__main__":
