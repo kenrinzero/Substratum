@@ -22,14 +22,17 @@ Key1/`0x1B`). The `rvz` unit closes the GC+Wii gap via `DolphinTool 2606a` (`GT 
 DVD-type PSP CHD extractdvd + iso9660 walks clean, and CD-type PS1 CHD
 composes all the way through `chd → ps1-bincue → iso9660` end-to-end on real
 retail images (BursTrick round-trip; the `_TempFileSource.path` exposure makes
-sibling `.cue` discovery work in the composed path). **Next: the `wux` / Wii U platform call is the only open decision** —
-chain assessment recorded 2026-08-21 (see the wux row below). New3DS 9.3
-(`0x0A`/`0x18`) was **removed 2026-08-21 by user decision** — the code
-path falls out of the 9.6 module for free, but a genuine `0x0A` retail
-anchor is realistically unsourceable and not worth chasing; it would
-only return if full-corpus download capacity ever exists. The durable
-lesson stays (a title's firmware requirement is unrelated to its NCCH
-crypto method): see
+sibling `.cue` discovery work in the composed path). **Next: nothing — the queue is empty.** The `wux` / Wii U platform call
+was **resolved 2026-08-21 (user decision): out of scope for Substratum**,
+split as a future standalone project — the chain assessment lives at
+`.atelier/ideas/wii-u.md` (the staged Your Shape sample was removed from
+the operator staging area, sha256 recorded in the idea file).
+New3DS 9.3 (`0x0A`/`0x18`) was **removed 2026-08-21 by user decision** —
+the code path falls out of the 9.6 module for free, but a genuine `0x0A`
+retail anchor is realistically unsourceable and not worth chasing; it
+would only return if full-corpus download capacity ever exists. The
+durable lesson stays (a title's firmware requirement is unrelated to its
+NCCH crypto method): see
 [`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION
 (2026-07-30)" and the two-key finding in
 [`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md).
@@ -515,10 +518,20 @@ crypto method): see
       operator pre-conversion path, and (b) the minimum set that makes the
       first 50-title sweep meaningful — RVZ + NKit likely cover the bulk.
 
-- [ ] **`wux` / Wii U platform decision (chain assessment recorded
-      2026-08-21; awaiting the user's platform call):** what a Wii U chain
-      actually needs, layer by layer — **four units to file level**, none
-      of it buildable today from anything already vendored:
+- [x] **`wux` / Wii U platform decision — RESOLVED 2026-08-21 (user:
+      out of scope, split as a future standalone project).** The chain
+      assessment (four units to file level: `wux` container → `wud`
+      structure → keyed title decrypt → `wiiu-romfs`; nothing vendored;
+      zero `F:\game` reach; the `.wua` ecosystem caveat) moved to
+      `.atelier/ideas/wii-u.md`, which also records the removed sample's
+      identity (`Your Shape FE 2013 (Europe).wux`, 2,264,694,784 bytes,
+      sha256 `ce86b17a…`) for re-acquisition. The staged sample itself
+      was deleted from the operator staging area on the same decision.
+      A future Wii U project would develop against Substratum's frozen
+      contract (importing the published package) with the option to
+      merge proven units back if the platform ever earns corpus reach.
+      The assessment as first recorded follows, kept for the row's
+      history:
 
       1. **`wux` container** (cheapest, the `gcz`/`ciso` pattern): header
          peek on the staged sample confirms magic `WUX0`, LE u32 block
