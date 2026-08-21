@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from substratum.contract import ByteSource, ByteView, FileSource, FileTree
 from substratum.formats.chd import normalize_chd, sniff as sniff_chd
+from substratum.formats.ciso import normalize_ciso, sniff as sniff_ciso
 from substratum.formats.cso import normalize_cso, sniff as sniff_cso
 from substratum.formats.gc_fst import normalize_gc_fst, sniff as sniff_gc_fst
 from substratum.formats.iso9660 import normalize_iso9660, sniff as sniff_iso9660
@@ -107,6 +108,11 @@ _FORMATS = (
     _Format("wii-partition", sniff_wii_partition, normalize_wii_partition),
     _Format("wii-fst", sniff_wii_fst, normalize_wii_fst),
     _Format("chd", sniff_chd, normalize_chd),
+    # ciso (wit's GC/Wii compact ISO) shares the 'CISO' magic with the PSP
+    # cso unit; both sniffers disambiguate on the LE u32 at 0x04 (2 MiB
+    # block size vs PSP header size 0x18), and ciso is registered first so
+    # a GC/Wii compact ISO can never dispatch to the PSP parser.
+    _Format("ciso", sniff_ciso, normalize_ciso),
     _Format("cso", sniff_cso, normalize_cso),
     _Format("zip", sniff_zip, normalize_zip),
     _Format("rvz", sniff_rvz, normalize_rvz),

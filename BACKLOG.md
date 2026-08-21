@@ -7,10 +7,11 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.26** is clean (the `nkit` recovery unit landed 2026-08-21,
-after `wbfs` on 0.0.25, `gcz` on 0.0.24 over a shared-DolphinTool
-refactor, `rvz` on 0.0.23, `chd` retail closure on 0.0.22, `3ds-romfs`
-on 0.0.21 and `zip` on 0.0.20). **23 normalizers** are GREEN:
+Version **0.0.27** is clean (the `ciso` sibling unit landed 2026-08-21,
+after `nkit` on 0.0.26, `wbfs` on 0.0.25, `gcz` on 0.0.24 over a
+shared-DolphinTool refactor, `rvz` on 0.0.23, `chd` retail closure on
+0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **24 normalizers**
+are GREEN:
 the keyless/decrypted floor, the complete Wii chain, the CIA container, the
 full 3DS encrypted-NCCH family — standard + plain-7.x crypto (`3ds-ncch-enc`,
 no-seed `{0x00, 0x01}`), 7.x-seed (`3ds-ncch-enc-seed`), and New3DS 9.6
@@ -438,10 +439,44 @@ and the two-key finding in
       Falsebound Kingdom (Europe) `.nkit.iso` (VerifySuccess, MD5/SHA1
       recorded by the tool).
 
+- [x] **`ciso` — wit's GC/Wii compact-ISO sibling (the staged-samples
+      follow-on; DONE 2026-08-21, 0.0.27):** `substratum/formats/ciso.py`
+      decodes the container wit 3.05a reads and writes — magic `CISO`,
+      LE u32 block size `0x200000` at 0x04, a byte-per-block map at
+      0x08 over the fixed single-layer Wii-size address space
+      (4,699,979,776 bytes — the total is declared nowhere; wit's reader
+      always reconstructs that size, verified on a GC-content CISO), and
+      present blocks' payloads as RAW 2 MiB slots packed in ascending
+      block order (slot j = present-block j, NOT block index j — the
+      load-bearing mapping). No compression anywhere in the format.
+      **The disambiguation the unit existed for:** PSP CISO v1 (the
+      GREEN `cso` unit) shares the magic; both sniffers now key on the
+      LE u32 at 0x04 (GC/Wii `0x200000` block size vs PSP header size
+      `0x18` — `cso.sniff` was tightened from magic-only to the full
+      v1 header shape), and `ciso` is registered before `cso`, so the
+      families can never cross-dispatch. **Findings:** (1) the staged
+      Luigi's Mansion `.ciso` is NKit 2's output — the same wit
+      container plus an appended `NKIT  v2` recovery trailer (0x240
+      bytes carrying the original disc size as BE u32; tolerated, wit
+      ignores it too); (2) **`wit copy` scrubs GC junk** — it drops
+      all-junk blocks from the map and zeroes junk spans inside stored
+      blocks, so wit-authored CISOs contain zeroed junk while
+      NKit-authored ones preserve original bytes; on the Luigi anchor
+      the wit decode differs from the view on exactly blocks 1 and 604,
+      every difference one-directional nonzero→zero and never inside a
+      game file (per-file proof via the retail gate); (3) dual-layer
+      Wii CISOs are untested and out of scope. Differential: a
+      wit-authored CISO round-trip (Hulk → wit CISO → decode ==
+      wit's own decode byte-exact over the full 4.7 GB image) + the
+      retail gate on Luigi's Mansion (wit-authored manifest + extraction
+      through the gc-fst composition, 847 files / 64 dirs) + the
+      seedtool-pinned view sha256 re-derived through the normalizer.
+
 - [ ] **`F:\game` corpus formats — WBFS / GCZ / NKit as follow-ons;
       Stratum Unit 4 prerequisite, operator-gated samples; SAMPLES STAGED
       2026-08-21, dispatch order settled `gcz` → `wbfs` → `nkit`, `ciso` as a
-      sibling, `wux` parked):** the operator staged five samples in
+      sibling, `wux` parked — **gcz/wbfs/nkit/ciso ALL DONE 2026-08-21; only
+      the `wux` platform decision remains open**):** the operator staged five samples in
       `C:\Users\kenrin\Downloads\fixtures` (headers verified): Beach Spikers
       `.gcz` (GC), Ghost Squad (Europe) `.wbfs` (Wii — the JP `.rvz` anchor is
       the same title, giving a cross-region differential), Yu-Gi-Oh! The

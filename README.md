@@ -19,10 +19,10 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.26 (2026-08-21): the interface and manifest schema remain
-frozen, the public one-layer dispatcher is live, and twenty-three real
+Version 0.0.27 (2026-08-21): the interface and manifest schema remain
+frozen, the public one-layer dispatcher is live, and twenty-four real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
-`saturn-dc-raw`, `cso`, `zip`, `rvz`, `gcz`, `wbfs`, `nkit`,
+`saturn-dc-raw`, `ciso`, `cso`, `zip`, `rvz`, `gcz`, `wbfs`, `nkit`,
 `wii-u8-arc`, `xdvdfs`, `3ds-cci`, `3ds-ncch`, `3ds-romfs`,
 the complete Wii chain (`wii-disc` → `wii-partition` → `wii-fst`),
 `3ds-ncch-enc`, `cia`, `3ds-ncch-enc-seed`, and `3ds-ncch-enc-96`. The
@@ -43,6 +43,7 @@ authored from pinned 7-Zip's independent listing and extraction.
 `gcz` decodes Dolphin's legacy CompressedBlob GCZ (magic `0xB10BC001`) through the same vendored DolphinTool, with the container differential provided by a spec-derived pure-Python block decoder in the tests (wit cannot read GCZ); a full-disc `iso → gcz → decode` round-trip is sha256-identical, and an operator-staged mislabeled `.gcz` (a compacted raw GC ISO) is kept as the sniff/dispatch regression that must route to `gc-fst`.
 `wbfs` reconstructs the scrubbed Wii container through wit (`wit copy`), zero-filling scrubbed clusters to the canonical full-size image — the independent differential is a spec-derived wlba-LUT decoder in the tests (DolphinTool's WBFS decode is mangled and unusable as an oracle; recorded), proven sha256-identical to wit over the entire 4.7 GB anchor.
 `nkit` recovers GC `.nkit.iso` to the full-size original through NKit 1.4 (the last public NKit release — NKit 2 is Discord-only, recorded); the differential is a byte-exact retail round-trip (MKDD → nkit → decode, sha256-identical) plus the recovered/compacted gc-fst file-map agreement, and the sniffer must precede `gc-fst` because an nkit begins with a real GC disc header.
+`ciso` decodes wit's GC/Wii compact-ISO container — a byte-per-block map over raw 2 MiB slots in the fixed Wii-size address space (no compression) — sharing the `CISO` magic with the PSP `cso` unit; the two sniffers disambiguate on the LE u32 at 0x04 (`0x200000` block size vs PSP header size `0x18`), `ciso` is registered first, and NKit 2's appended recovery trailer is tolerated. Proven against wit's own decode on a wit-authored CISO (byte-exact over the full image) and on the NKit-authored Luigi's Mansion retail anchor through the gc-fst composition, with wit's GC junk scrubbing characterized as one-directional and never inside game files.
 `3ds-romfs` walks the decrypted IVFC-wrapped RomFS layer with the
 complete hash tree verified eagerly (master <- level0 <- level1 <- data),
 proven on staged retail media through the full cci → ncch → romfs

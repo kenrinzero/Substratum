@@ -97,10 +97,25 @@ class _CisoSource:
 
 
 def sniff(source: ByteSource) -> bool:
-    """True when the source starts with the CISO magic. ZSO/DAX are false."""
-    if source.size() < 4:
+    """True for the PSP CISO v1 header shape: 'CISO' magic, LE header_size
+    0 or 24 at 0x04, LE block_size 2048 at 0x10, version 1 at 0x14.
+
+    The GC/Wii compact ISO (the `ciso` unit) shares the magic but carries
+    a LE 2 MiB block size at 0x04 — it must never dispatch here, which
+    the header_size check guarantees in both directions.
+    """
+    if source.size() < _HEADER_SIZE:
         return False
-    return source.read_at(0, 4) == _MAGIC
+    head = source.read_at(0, _HEADER_SIZE)
+    if head[:4] != _MAGIC:
+        return False
+    (header_size,) = struct.unpack_from("<I", head, 4)
+    if header_size not in (0, _HEADER_SIZE):
+        return False
+    (block_size,) = struct.unpack_from("<I", head, 16)
+    if block_size != _SUPPORTED_BLOCK:
+        return False
+    return head[20] == 1
 
 
 def normalize_cso(source) -> ByteView:
