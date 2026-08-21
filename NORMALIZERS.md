@@ -110,6 +110,44 @@ adds about 0.24 ms to normalization of the 412-sector homebrew anchor; it is now
 the runtime structural boundary. Arbitrary valid starting MSF is accepted so
 session/track extracts remain representable.
 
+**CISO final-slot layout (2026-08-21, `ciso`):** block 2241 covers only the
+last 262,144 bytes of the 4,699,979,776-byte disc, so a writer could store a
+short final slot. wit does not, and wit's reader cannot read one. The layout
+was unobservable — `wit copy` scrubs the disc tail on every real image, and
+block 2233 is the highest ever seen present across Mario Kart Wii, Sonic
+Colors and The Munchables (all three exactly `_TOTAL` bytes) — so it was
+settled by construction: both candidates were built from a wit-authored Mario
+Kart Wii CISO by marking block 2241 present and appending its real disc bytes.
+wit decodes the full-block form and reproduces the disc tail exactly; on the
+short form it dies with `ERROR #84 [READ FILE FAILED] in ReadCISO() @
+src/lib-ciso.c#398, Read failed [F=3,2982182912+2097152]`, asking for a whole
+block at the slot base. Slot accounting is therefore uniform
+(`len(present) * block_size`). Until this measurement it truncated the final
+slot, which inverted the polarity exactly — the file wit reads was refused as
+trailing garbage and the file wit refuses was accepted — unreachable only
+because no staged sample has a present block 2241. Pinned both ways by
+`tests/test_ciso.py`. Note also that when block 2241 *is* present, wit emits
+2242 whole blocks (4,701,814,784 bytes); the ByteView keeps the true
+single-layer size and treats the extra 1,835,008 as block padding outside the
+disc address space.
+
+**Recursion depth of the tree walkers (measured 2026-08-21, audit D2):**
+`gc-fst`, `wii-fst`, `wii-u8-arc` and `3ds-romfs` recurse once per directory
+nesting level (sibling chains are `while` loops), and `xdvdfs` recurses on
+both the left child and the right sibling of its LCRS binary tree, so only
+its depth is untied from the directory depth. Measured against
+`sys.getrecursionlimit()` = 1000: **max nesting depth 3** across every
+committed manifest (chd/ciso/cso/iso9660/ps1-bincue at 3, everything else at
+2 or below), and LCRS depth **6** on the synthetic xiso (9 entries) and **29**
+on the Jade Empire retail pressing (4,022 entries — roughly 2x a balanced
+tree's ~12 levels). Reaching the limit would need a near-degenerate tree of
+order 100,000 entries in one directory, which optical media does not produce.
+Recorded as standing assertions in `tests/test_recursion_depth.py` rather than
+as a one-off note, so a future fixture that changes shape fails with the
+number instead of surfacing as a mystery `RecursionError`. An explicit-stack
+rewrite of five GREEN, retail-proven walkers was declined on this evidence;
+the gate already turns `RecursionError` into a structural red.
+
 Prep rows (explicitly-scoped, not normalizer units) — **all DONE
 through 2026-07-26** via `seedtools/vendor_tools.py` (binaries live in gitignored
 `tools/`; the committed script re-fetches and verifies against its pinned

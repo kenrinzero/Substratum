@@ -107,7 +107,27 @@ Per fixture row in NORMALIZERS.md:
 
 **Sampling policy (settled):** all files when a fixture has ≤ 16 entries;
 otherwise 16 chosen deterministically (first + last + largest + seeded
-picks, seed recorded in the fixture row). **No-second-tool rule (settled,
+picks, seed recorded in the fixture row).
+
+**Amendment — an opt-in stronger sample (2026-08-21).** The sampled policy
+above is unchanged and remains the gate: a default run diffs the same files
+it always did, and downstream may keep binding to exactly that. Setting
+`SUBSTRATUM_FULL_FIDELITY=1` makes one run diff **every** file instead
+(`verify.full_fidelity`). This is not a semantics change, because the flag
+can only make a run *stronger* — a green under it implies a green under the
+default — and no default byte moves. It exists because the sampled default
+leaves most of the evidence unread: across the six fixtures over the cap,
+96 of 2,699 independently-extracted reference files (3.6%) are diffed on a
+routine run, and 2.6 GB of extractions the oracle already produced go
+untouched. Two of those fixtures are committed, so even a fresh clone gains.
+Deliberately opt-in: a full pass reads gigabytes (`wii_fst/munchables` alone
+is 1.68 GB of references), which does not belong in every `uv run pytest`.
+It also requires a **complete** reference extraction — an unsampled file
+with no reference bytes is a fidelity red, which is the correct answer in
+this mode. An unrecognized value of the variable raises rather than falling
+back, so a typo cannot quietly buy back the weaker sample.
+
+**No-second-tool rule (settled,
 from the plan):** structural-only green is never sufficient; a format with
 no reference tool must carry a self-consistency proof (ranges tile the
 source, offsets re-derived from records) or it stays out of the routine

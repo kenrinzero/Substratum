@@ -20,19 +20,47 @@ Hulk round-trip):
           entries) and lives inside the fixed 0x8000-byte header area.
   0x8000  PRESENT blocks' payloads as fixed block-size slots stored RAW
           (no compression), packed in ascending block order: slot j
-          holds present-block j — NOT block index j. GC content occupies
-          a block prefix of the address space; the tail blocks are
-          absent.
+          holds present-block j — NOT block index j. Every slot is a
+          FULL block_size, including the final block 2241, whose disc
+          extent is only 262,144 bytes — see the final-slot note below.
+          GC content occupies a block prefix of the address space; the
+          tail blocks are absent.
   EOF     past the last slot: nothing, or an NKit v2 recovery trailer
           (starts b'NKIT'; the observed one is 0x240 bytes carrying the
           original disc size as BE u32). wit ignores it; so does this
           normalizer.
 
-The container declares no total size anywhere. wit's reader always
-reconstructs the fixed single-layer Wii size (verified: `wit COPY` of a
-GC-content CISO emits a 4,699,979,776-byte ISO), so the ByteView reports
-that size. Dual-layer Wii CISOs are untested and out of scope; a file
-whose slots exceed the 2242-block map fails the trailing-data check.
+The final slot is a FULL block (settled empirically 2026-08-21). Block
+2241 covers only the last 262,144 bytes of the 4,699,979,776-byte disc,
+so a writer could plausibly store a short final slot — but wit does not,
+and wit's reader cannot read one. Every image wit writes scrubs the tail
+(2233 is the highest block observed present across Mario Kart Wii, Sonic
+Colors and The Munchables), so the layout was settled by construction
+instead: both candidates were built from a wit-authored Mario Kart Wii
+CISO by marking block 2241 present and appending its real disc bytes.
+
+  * full 2 MiB final slot   -> `wit COPY --raw --iso` decodes it and
+    reproduces the disc's own tail bytes exactly.
+  * 262,144-byte final slot -> wit dies with `ERROR #84 [READ FILE
+    FAILED] in ReadCISO() @ src/lib-ciso.c#398, Read failed
+    [F=3,2982182912+2097152]` — it asks for a whole block at the slot
+    base regardless of which block lives there.
+
+Slot accounting therefore uses a uniform `len(present) * block_size`.
+(Until 2026-08-21 it truncated the final slot, which inverted the
+polarity exactly: the file wit reads was refused as trailing garbage and
+the file wit refuses was accepted. Unreachable on every staged sample,
+because none of them has a present block 2241.)
+
+The container declares no total size anywhere, and the ByteView reports
+the fixed single-layer Wii size. That matches wit for every image whose
+final block is absent (verified: `wit COPY` of a GC-content CISO emits a
+4,699,979,776-byte ISO) but *not* when block 2241 is present — there wit
+emits 2242 whole blocks, 4,701,814,784 bytes. The extra 1,835,008 are
+block padding past the end of a single-layer disc, so they stay outside
+the address space this view exposes; a read into them raises. Dual-layer
+Wii CISOs are untested and out of scope; a file whose slots exceed the
+2242-block map fails the trailing-data check.
 
 Load-bearing wit behavior (recorded): `wit copy` SCRUBS GC junk — it
 drops all-junk blocks from the map and zeroes junk spans inside stored
@@ -169,9 +197,10 @@ def normalize_ciso(source) -> ByteView:
     for slot, block in enumerate(present):
         rank[block] = slot
 
-    needed = sum(
-        min(_BLOCK_SIZE, _TOTAL - block * _BLOCK_SIZE) for block in present
-    )
+    # Uniform full-block slots, final block included — the same stride
+    # `_CisoSource.read_at` uses, and the one wit's reader requires
+    # (module docstring, "The final slot is a FULL block").
+    needed = len(present) * _BLOCK_SIZE
     extra = src.size() - _HEADER_AREA - needed
     if extra < 0:
         raise ValueError(

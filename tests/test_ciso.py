@@ -267,6 +267,56 @@ def test_truncated_slot_is_structural_red(tmp_path):
     assert_structural_failure(problems, "inside slot")
 
 
+def _final_block_ciso(tmp_path: Path, *, short: bool) -> tuple[Path, bytes]:
+    """A minimal CISO with blocks 0 and 2241 present — 0x8000 + two slots.
+
+    Block 2241 is the final block, and its disc extent is only 262,144 of
+    the 2,097,152 bytes a slot holds, so the two plausible layouts differ.
+    `short=False` stores a whole block (what wit writes and reads);
+    `short=True` stores just the disc extent (what wit refuses).
+    """
+    tail_size = TOTAL - (NBLOCKS - 1) * BLOCK
+    tail = _chain(b"ciso-final-block", tail_size)
+    head = bytearray(0x8000)
+    head[:4] = b"CISO"
+    struct.pack_into("<I", head, 4, BLOCK)
+    head[8] = 1
+    head[8 + NBLOCKS - 1] = 1
+    payload = _chain(b"ciso-block0", BLOCK) + tail
+    if not short:
+        payload += bytes(BLOCK - tail_size)
+    path = tmp_path / ("short.ciso" if short else "full.ciso")
+    path.write_bytes(bytes(head) + payload)
+    return path, tail
+
+
+def test_final_slot_is_a_full_block_like_wit(tmp_path):
+    """The final slot is a whole block — the layout wit writes and reads.
+
+    Settled by construction rather than observation: wit scrubs the disc
+    tail on every real image (block 2233 is the highest ever seen present
+    across three full-size Wii ISOs), so no staged sample reaches block
+    2241. See the ciso module docstring for the wit-side proof.
+    """
+    path, tail = _final_block_ciso(tmp_path, short=False)
+    view = normalize_ciso(path)
+    assert view.source.size() == TOTAL
+    assert view.source.read_at((NBLOCKS - 1) * BLOCK, len(tail)) == tail
+    # The slot's remaining 1,835,008 bytes are block padding past the end
+    # of a single-layer disc; wit emits them, this view does not.
+    with pytest.raises(ValueError, match="out of bounds"):
+        view.source.read_at(TOTAL - 1, 2)
+
+
+def test_short_final_slot_refused_like_wit(tmp_path):
+    """A final slot stored at the block's disc extent instead of a whole
+    block is not a wit CISO — wit dies with ERROR #84 in ReadCISO(),
+    asking for a full block at the slot base."""
+    path, _ = _final_block_ciso(tmp_path, short=True)
+    with pytest.raises(ValueError, match="inside slot"):
+        normalize_ciso(path)
+
+
 def test_trailing_garbage_refused(tmp_path):
     def f(data):
         return data + b"JUNKJUNKJUNK"

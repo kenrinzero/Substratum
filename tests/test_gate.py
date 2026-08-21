@@ -17,7 +17,15 @@ from substratum.contract import (
     canonical_manifest,
     sha256_of,
 )
-from substratum.verify import _FIDELITY_CHUNK, _first_diff, run_checks, sample_entries
+from substratum.verify import (
+    _FIDELITY_CHUNK,
+    FULL_FIDELITY_ENV,
+    SAMPLE_CAP,
+    _first_diff,
+    full_fidelity,
+    run_checks,
+    sample_entries,
+)
 from tests.toyfs import (
     normalize_toy,
     normalize_toy_mutant_metadata,
@@ -93,18 +101,50 @@ def test_canonical_manifest_is_ascii_sorted_stable(tmp_path):
     assert canonical_manifest(tree, "x.bin", "0" * 64, {}) == out
 
 
-def test_sample_entries_deterministic_and_capped(tmp_path):
+def _wide_tree(tmp_path) -> FileTree:
+    """24 files — comfortably over `SAMPLE_CAP`, so sampling is observable."""
     f = tmp_path / "x.bin"
     f.write_bytes(b"\x00" * 4096)
     entries = tuple(
         FileEntry(f"f{i:02}.bin", "file", i * 16, 16 if i != 7 else 99)
         for i in range(24)
     )
-    tree = FileTree(FileSource(f), "toyfs", entries)
+    return FileTree(FileSource(f), "toyfs", entries)
+
+
+def test_sample_entries_deterministic_and_capped(tmp_path):
+    tree = _wide_tree(tmp_path)
     s1 = [e.path for e in sample_entries(tree, seed=1)]
     s2 = [e.path for e in sample_entries(tree, seed=1)]
     assert s1 == s2 and len(s1) == 16
     assert "f00.bin" in s1 and "f23.bin" in s1 and "f07.bin" in s1  # first/last/largest
+
+
+def test_full_fidelity_flag_lifts_the_cap(monkeypatch, tmp_path):
+    """`SUBSTRATUM_FULL_FIDELITY=1` diffs every file (DESIGN.md § 3
+    amendment). The sampled default is unchanged and stays the settled
+    policy — this only ever makes a run stronger."""
+    tree = _wide_tree(tmp_path)
+    monkeypatch.delenv(FULL_FIDELITY_ENV, raising=False)
+    assert len(sample_entries(tree, seed=1)) == SAMPLE_CAP
+    for value in ("1", "all", "TRUE", "Yes"):
+        monkeypatch.setenv(FULL_FIDELITY_ENV, value)
+        assert full_fidelity() is True
+        assert len(sample_entries(tree, seed=1)) == 24
+    for value in ("", "0", "false", "NO"):
+        monkeypatch.setenv(FULL_FIDELITY_ENV, value)
+        assert full_fidelity() is False
+        assert len(sample_entries(tree, seed=1)) == SAMPLE_CAP
+
+
+def test_full_fidelity_typo_raises_rather_than_silently_sampling(monkeypatch, tmp_path):
+    """The dangerous failure is a typo that quietly buys back the weak
+    sample while the operator believes the whole tree was diffed."""
+    monkeypatch.setenv(FULL_FIDELITY_ENV, "ture")
+    with pytest.raises(ValueError, match="neither true"):
+        full_fidelity()
+    with pytest.raises(ValueError, match="neither true"):
+        sample_entries(_wide_tree(tmp_path), seed=1)
 
 
 def test_slice_source_bounds():

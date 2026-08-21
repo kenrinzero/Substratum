@@ -193,6 +193,20 @@ uv sync
 uv run pytest
 ```
 
+The fidelity check diffs a deterministic 16-file sample per fixture
+(`DESIGN.md` § 3) — the settled policy, and what a routine run does. For a
+periodic deep pass, opt one run into diffing **every** file instead:
+
+```powershell
+$env:SUBSTRATUM_FULL_FIDELITY = "1"; uv run pytest; $env:SUBSTRATUM_FULL_FIDELITY = $null
+```
+
+That takes byte coverage on the six fixtures over the cap from 96 of 2,699
+reference files to all of them. It reads a lot: ~19 MB on a fresh clone,
+~10 GB with every retail anchor staged. It also needs a complete extraction
+for each fixture it touches — an unsampled file with no reference bytes is a
+fidelity red — and it changes no default, so it can only make a run stronger.
+
 ## Fixture policy (short version)
 
 Synthetic (committed) · homebrew (fetched, committed if license-clean) ·

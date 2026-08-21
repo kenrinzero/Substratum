@@ -599,4 +599,6 @@ NCCH crypto method): see
 3. Read `DESIGN.md` before changing the contract or starting a unit.
 4. Read `docs/WII-KEYED-WORK.md` when the common-key artifact is available.
 5. Run `uv run pytest` for the full four-check gate after implementation;
-   structural-only or self-consistency-only results are not GREEN.
+   structural-only or self-consistency-only results are not GREEN. For a
+   periodic deep pass, `SUBSTRATUM_FULL_FIDELITY=1` diffs every reference
+   file instead of the 16-file sample (DESIGN.md § 3 amendment).

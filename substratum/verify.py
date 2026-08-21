@@ -9,22 +9,57 @@ reference bytes. Enumeration parity alone is never sufficient.
 
 from __future__ import annotations
 
+import os
 import random
 from pathlib import Path
 
 from substratum.contract import FileTree, canonical_manifest
 
-__all__ = ["run_checks", "sample_entries"]
+__all__ = ["full_fidelity", "run_checks", "sample_entries"]
 
 SAMPLE_CAP = 16
 _FIDELITY_CHUNK = 1 << 20  # 1 MiB — matches contract.sha256_of's stream chunk
 
+FULL_FIDELITY_ENV = "SUBSTRATUM_FULL_FIDELITY"
+_TRUE = frozenset({"1", "all", "true", "yes"})
+_FALSE = frozenset({"", "0", "false", "no"})
+
+
+def full_fidelity() -> bool:
+    """Is this run opted into diffing every file instead of a sample?
+
+    `SUBSTRATUM_FULL_FIDELITY=1` lifts the cap for one run (DESIGN.md § 3
+    amendment). The default is unchanged and remains the settled policy —
+    this flag only makes a run *stronger*, never weaker, so a green under
+    it implies a green under the default. It requires a COMPLETE reference
+    extraction: an unsampled file with no reference bytes is a fidelity
+    red, which is correct for this mode and expected for a fixture whose
+    reference directory was only partially populated.
+
+    Read per call, not at import, so a test can toggle it. A value that is
+    neither true nor false raises rather than falling back to the default —
+    a typo must not silently buy back the weaker sample while the operator
+    believes the whole tree was diffed.
+    """
+    raw = os.environ.get(FULL_FIDELITY_ENV, "").strip().lower()
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    raise ValueError(
+        f"{FULL_FIDELITY_ENV}={raw!r} is neither true ({'/'.join(sorted(_TRUE))}) "
+        f"nor false ({'/'.join(sorted(_FALSE - {''}))})"
+    )
+
 
 def sample_entries(tree: FileTree, seed: int) -> list:
     """Deterministic fidelity sample (DESIGN.md § 3): all files when <=16,
-    else first + last + largest + seeded picks up to the cap."""
+    else first + last + largest + seeded picks up to the cap.
+
+    `SUBSTRATUM_FULL_FIDELITY=1` returns every file instead — see
+    `full_fidelity`."""
     files = sorted(tree.files(), key=lambda e: e.path)
-    if len(files) <= SAMPLE_CAP:
+    if full_fidelity() or len(files) <= SAMPLE_CAP:
         return files
     picked = {files[0].path: files[0], files[-1].path: files[-1]}
     largest = max(files, key=lambda e: e.size)
