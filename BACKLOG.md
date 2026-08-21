@@ -22,7 +22,7 @@ Key1/`0x1B`). The `rvz` unit closes the GC+Wii gap via `DolphinTool 2606a` (`GT 
 DVD-type PSP CHD extractdvd + iso9660 walks clean, and CD-type PS1 CHD
 composes all the way through `chd → ps1-bincue → iso9660` end-to-end on real
 retail images (BursTrick round-trip; the `_TempFileSource.path` exposure makes
-sibling `.cue` discovery work in the composed path). **Next: nothing — the queue is empty.** The `wux` / Wii U platform call
+sibling `.cue` discovery work in the composed path). **Next: one open consumer ask** — XGD base-offset support in dispatch (ask 9 from Stratum, 2026-08-21). `normalize()` currently answers a retail Xbox disc with the decoy DVD-Video partition instead of the game filesystem; it is the only thing blocking Stratum's Unit 3. Details in § Next. The `wux` / Wii U platform call
 was **resolved 2026-08-21 (user decision): out of scope for Substratum**,
 split as a future standalone project — the chain assessment lives at
 `.atelier/ideas/wii-u.md` (the staged Your Shape sample was removed from
@@ -238,6 +238,16 @@ NCCH crypto method): see
       local-only and are never committed to git. This unblocks the same
       `bink.video` path the backlog called out, without broadening beyond the
       `xdvdfs` normalizer scope.
+
+      **CORRECTION (2026-08-21):** the last sentence was wrong. The parser
+      was fixed and proven, but `base_offset` landed as a *parameter only* —
+      it never reached `sniff` or the dispatch registry, and Stratum reaches
+      containers exclusively through `normalize()`. So `bink.video` was not
+      unblocked, and a retail Xbox disc still resolves to `iso9660`'s decoy
+      DVD-Video partition. The unfinished half is filed below as ask 9.
+      Lesson worth keeping: proving a parser against a retail image is not
+      the same as making that image reachable through the public API, and
+      only a dispatcher-level test can tell the two apart.
 
 - [x] **`chd` two bugs — DVD-type CHDs crash, CD-type CHDs lose their cue
       (consumer request from Stratum, 2026-08-20; CHEAP, ~8,900 corpus
@@ -585,6 +595,59 @@ NCCH crypto method): see
       capacity, which is not a priority.** The durable lesson stays:
       read the crypto method, never the firmware version — a title can
       require FW 9.3+ and still ship 7.x (`0x01`) crypto.
+
+- [ ] **XGD base-offset support in DISPATCH, not just in the parser
+      (consumer ask 9 from Stratum, filed 2026-08-21; the unfinished half
+      of ask 5 above, not a new request; HIGHEST VALUE — it is the only
+      thing between Stratum's Unit 3 and its 7/9 target):**
+      the 2026-08-20 `xdvdfs` work fixed the parser and retail-proved it
+      (`3b119aa`), but `base_offset` arrived as a *parameter only*, so
+      nothing that goes through the public `normalize()` can reach a
+      retail Xbox disc. Measured on the staged
+      `fixtures/_local/Jade Empire (Japan).iso`:
+
+      | call | result |
+      |---|---|
+      | `normalize(iso)` | dispatches to **iso9660** — 7 entries, 6 files, all `VIDEO_TS/*`, no `.bik` |
+      | `normalize(iso, format="xdvdfs")` | raises `not an XDVDFS image (bad descriptor magic)` |
+      | `normalize_xdvdfs(iso, base_offset=0x18300000)` | **4,022 entries, 218 loose `.bik`** |
+
+      **The first row is the defect, and it is a silent wrong answer
+      rather than a refusal.** An Xbox disc carries a decoy DVD-Video
+      partition so a standard player sees a valid DVD; `iso9660`
+      legitimately claims it, so a consumer asking `normalize()` for a
+      retail Xbox disc gets a plausible six-file tree of `VIDEO_TS`
+      stubs instead of the game filesystem. The 2026-07-24 design spec
+      scoped XGD embedding out and recorded the sniff as *refusing* such
+      images; once `base_offset` existed, "refused at sniff" quietly
+      became "answered wrongly by a different unit". This is exactly the
+      correct-enumeration/wrong-content class DESIGN § 3's check 4
+      exists for — and the gate cannot see it, because every `xdvdfs`
+      test drives `normalize_xdvdfs` directly with an explicit offset
+      and none drives the dispatcher against a retail image.
+
+      **Shape (small — the constants are already in this repo's own
+      spec, `docs/specs/2026-07-24-xdvdfs-normalizer-design.md` § 9):**
+      probe the four known descriptor bases — plain `.xiso` `0`, XGD1
+      `0x18300000`, XGD2 `0x0FD90000`, XGD3 `0x02080000` — in `sniff`,
+      and carry the one that matched into `normalize_xdvdfs`. Suggested
+      signature change: `base_offset: int | None = None` meaning *probe*,
+      with an explicit `int` still pinning exactly one offset so every
+      existing caller and test keeps its current meaning. **No registry
+      reorder is needed:** `xdvdfs` is already registered at position 20
+      and `iso9660` at 23, so an XGD-aware sniffer claims the image
+      first — but the ordering is load-bearing the same way `ciso`/`cso`
+      is, and should be pinned by a test that fails if `iso9660` ever
+      moves ahead of it.
+
+      **Fixtures, all already staged, no acquisition:** Jade Empire
+      (Japan), KotOR (USA Rev 1) and Prince of Persia (USA) are in
+      `fixtures/_local/`, all three XGD1 with the descriptor at
+      `0x18300000` (verified 2026-08-21); `xdvdfs-rs 0.9.0` is the
+      pinned differential and already proved the Jade Empire tree.
+      The gap worth closing alongside: a dispatcher-level test on a
+      retail image, so "`normalize()` returns the game filesystem, not
+      the video decoy" is asserted rather than assumed.
 
 - [x] **Promote the Spolia program (2026-08-05):** Stratum at
       `C:\Users\kenrin\Project\Stratum` (`37c9f74`) and Quarry at
