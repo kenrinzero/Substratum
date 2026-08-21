@@ -52,10 +52,12 @@ model** (exheader/ExeFS-superblock/ExeFS-tail = Key0; `.code`+RomFS = Key1).
 FE Warriors is the no-seed `0x0B` anchor; the committed synthetic (generated
 test keys) exercises the real decrypt path + the ExeFS key split.
 
-New3DS 9.3 (`0x0A`, keyslot `0x18`) is **opportunistic**: the tooling falls
-out of the 9.6 path (same module, `slot0x18KeyX`), but a 2026-07-30 hunt
-confirmed genuine `0x0A` titles are effectively lost media (three database-
-"9.3" titles all qualified as `0x01`). **The firmware version a title requires
+New3DS 9.3 (`0x0A`, keyslot `0x18`) — **REMOVED from the backlog
+2026-08-21 by user decision**: the tooling falls out of the 9.6 path
+(same module, `slot0x18KeyX`), but a 2026-07-30 hunt confirmed genuine
+`0x0A` titles are effectively lost media (three database-"9.3" titles all
+qualified as `0x01`), and chasing one is not realistic without
+full-corpus download capacity. **The firmware version a title requires
 is unrelated to its NCCH crypto method** — read ctrtool `-v`'s `Flags:` byte
 (the 4th byte = `ncchflag[3]`), not the FW. Full detail in
 `docs/3DS-KEYED-WORK.md` § "CORRECTION (2026-07-30)" and the two-key finding in

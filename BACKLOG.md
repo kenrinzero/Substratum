@@ -22,11 +22,16 @@ Key1/`0x1B`). The `rvz` unit closes the GC+Wii gap via `DolphinTool 2606a` (`GT 
 DVD-type PSP CHD extractdvd + iso9660 walks clean, and CD-type PS1 CHD
 composes all the way through `chd → ps1-bincue → iso9660` end-to-end on real
 retail images (BursTrick round-trip; the `_TempFileSource.path` exposure makes
-sibling `.cue` discovery work in the composed path). **Next: New3DS 9.3
-(`0x0A`/`0x18`) is opportunistic only** — tooling falls out of the 9.6 path,
-but a genuine `0x0A` retail anchor is effectively lost media. See
-[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION (2026-07-30)"
-and the two-key finding in
+sibling `.cue` discovery work in the composed path). **Next: the `wux` / Wii U platform call is the only open decision** —
+chain assessment recorded 2026-08-21 (see the wux row below). New3DS 9.3
+(`0x0A`/`0x18`) was **removed 2026-08-21 by user decision** — the code
+path falls out of the 9.6 module for free, but a genuine `0x0A` retail
+anchor is realistically unsourceable and not worth chasing; it would
+only return if full-corpus download capacity ever exists. The durable
+lesson stays (a title's firmware requirement is unrelated to its NCCH
+crypto method): see
+[`docs/3DS-KEYED-WORK.md`](docs/3DS-KEYED-WORK.md) § "CORRECTION
+(2026-07-30)" and the two-key finding in
 [`docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md`](docs/3DS-PURE-PYTHON-AES-CTR-PLAN.md).
 
 ## Done
@@ -510,15 +515,61 @@ and the two-key finding in
       operator pre-conversion path, and (b) the minimum set that makes the
       first 50-title sweep meaningful — RVZ + NKit likely cover the bulk.
 
-- [ ] **New3DS 9.3 variant (opportunistic — media-scarce):** `ncchflag[3] ==
-      0x0A`, keyslot `0x18`, no seeddb. Tooling-wise this falls out of the 9.6
-      pure-Python path for free (`0x18` keyX is in the parked keyset, same
-      module), **but it still needs a genuine `0x0A` retail anchor**, which
-      Kenrin's hunt confirms is effectively lost media (2026-07-30: three
-      database-"9.3" titles all turned out `0x01` — see the finding above).
-      **Read the crypto method, not the firmware version:** a title can require
-      FW 9.3+ and still ship 7.x (`0x01`) crypto. This unit only lands if a real
-      `0x0A` surfaces.
+- [ ] **`wux` / Wii U platform decision (chain assessment recorded
+      2026-08-21; awaiting the user's platform call):** what a Wii U chain
+      actually needs, layer by layer — **four units to file level**, none
+      of it buildable today from anything already vendored:
+
+      1. **`wux` container** (cheapest, the `gcz`/`ciso` pattern): header
+         peek on the staged sample confirms magic `WUX0`, LE u32 block
+         size `0x8000` (32 KiB), a ~25.03 GB declared total (the full
+         Wii U disc size), and a u32-per-block index table — a
+         block-compressed WUD container. Decode unit returns a ByteView
+         of the inner WUD. **Oracle gap:** nothing Wii U is vendored;
+         candidates (uwizard C++, JNUSTool Java, vgmtoolbox, or a
+         spec-derived decoder + second reader à la gcz/wbfs) must be
+         settled at unit time. One staged sample exists
+         (`Your Shape FE 2013 (Europe).wux`, 2.26 GB).
+      2. **`wud` disc structure:** the encrypted raw disc image —
+         partition table + the WUP title layout (`.app`/`.h3`/`.tik`/
+         `.tmd`/`.cert` at aligned offsets), documented on wiiubrew.
+         Resembles `wii-disc`: an unkeyed table walk to a FileTree of
+         opaque encrypted slices. The `wux` decode of the staged sample
+         IS the WUD bytes, so one sample can anchor both — but a single
+         title is a weak-variant anchor (the 9.3 lesson).
+      3. **`wup-title-decrypt` (keyed):** per-title AES key from the
+         dump's own `.tik` (encrypted with the Wii U common key —
+         public/leaked; same operator env-var file posture as the Wii
+         common key, never committed). Correctness anchor: the `.h3`
+         hash trees over `.app` contents — the NCCH protected-hash
+         pattern.
+      4. **`wiiu-romfs`:** decrypted `.app` content is CafeOS romfs →
+         FileTree (file level, where Stratum's detectors start seeing
+         anything). SARC/RPX below that stay downstream, like Yaz0/U8
+         are for Wii.
+
+      **Why it stays parked unless the platform is wanted for its own
+      sake:** `F:\game` holds ZERO Wii U titles (Unit 4 inventory), so
+      this is a new-platform bet, not census coverage — unlike every
+      unit shipped this week, which had reach or a cheap vendored
+      sibling. Also note the ecosystem reality: if a Wii U corpus ever
+      arrives it may well be `.wua` (Cemu's 7z-based, already-decrypted
+      archive), which would skip layers 1–3 entirely and leave only
+      romfs — the `wux` bet only pays if the corpus arrives as
+      wud/wux. Cost if wanted: ~4 units + one vendoring prep row
+      (comparable to the 3DS chain build-out).
+
+- [x] **New3DS 9.3 variant — REMOVED 2026-08-21 (user decision, not
+      landed):** `ncchflag[3] == 0x0A`, keyslot `0x18`, no seeddb.
+      Tooling-wise this falls out of the 9.6 pure-Python path for free
+      (`0x18` keyX is in the parked keyset, same module), but it needs a
+      genuine `0x0A` retail anchor, and the 2026-07-30 hunt established
+      those are effectively lost media (three database-"9.3" titles all
+      turned out `0x01`). **Removed as realistically unsourceable — not
+      worth further chasing; would only return with full-corpus download
+      capacity, which is not a priority.** The durable lesson stays:
+      read the crypto method, never the firmware version — a title can
+      require FW 9.3+ and still ship 7.x (`0x01`) crypto.
 
 - [x] **Promote the Spolia program (2026-08-05):** Stratum at
       `C:\Users\kenrin\Project\Stratum` (`37c9f74`) and Quarry at
