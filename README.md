@@ -91,7 +91,9 @@ load-bearing Wii-format finding is that FST file offsets are word offsets
 artifact, safe extraction/storage steps, and key-handling discipline.
 The full 3DS encrypted-NCCH family is GREEN. The CIA install container
 (`cia`) parses the outer container into opaque section slices whose content
-blob a caller re-normalizes through `3ds-ncch-enc`. `3ds-ncch-enc` covers the
+blob a caller re-normalizes through `3ds-ncch-enc`. CDN-encrypted eShop
+chunks (TMD type bit 0) verify their TMD SHA-256 after titlekey decrypt;
+the slices themselves stay on-media. `3ds-ncch-enc` covers the
 no-seed encrypted variants — standard crypto (`Secure (0)`, keyslot `0x2C`)
 and plain-7.x (`Secure (1)` no-seed, keyslot `0x25`) — decrypting via vendored
 ctrtool into a `ByteView` the caller composes through `three_ds_ncch`.

@@ -43,10 +43,15 @@ bit 2 (`0x4`) = NoCrypto (unencrypted — this is Cubic Ninja), bit 5 (`0x20`)
 
 ### Path B — CIA ticket (eShop / digital)
 
-This is the Wii-like layer: a **common key** (keyslot `0x3D` keyY) decrypts
+This is the Wii-like layer: a **common key** (keyslot `0x3D`: `slot0x3DKeyX`
+plus `commonN` as keyY, run through the hardware key generator) decrypts
 the per-title **titlekey** stored at ticket offset `0x1BF` (AES-CBC, IV =
-reversed title ID + zero pad). The decrypted titlekey then decrypts the NCCH
-content. The titlekey is **per title** (one per game), not a single artifact.
+title ID as big-endian u64 in the first 8 bytes of a zeroed 16-byte block).
+The decrypted titlekey then decrypts CIA content (AES-CBC, IV = content
+index as big-endian u16 at byte 0). TMD content-chunk SHA-256 values are
+over that **titlekey-decrypted** blob when the TMD encrypted flag is set,
+not over the on-media ciphertext. The titlekey is **per title** (one per
+game), not a single artifact.
 
 ## Architecture decision (settled 2026-07-29)
 

@@ -52,8 +52,9 @@ and the two-key finding in
 - [x] **CIA install container (`cia`):** parses the header-driven section table
       and exposes each section (header/certs/ticket/tmd/content blobs/footer)
       as an opaque slice. Full multi-content support; the TMD content-chunk
-      records' declared SHA-256 is the correctness anchor. Completes the 3DS
-      stack from outer container to decrypted NCCH regions.
+      records' declared SHA-256 is the correctness anchor (on-media for
+      unencrypted chunks; titlekey-decrypted for CDN-encrypted eShop CIAs).
+      Completes the 3DS stack from outer container to decrypted NCCH regions.
 
 - [x] **7.x-seed encrypted NCCH (`3ds-ncch-enc-seed`):** decrypts
       `Secure (1) (KeyY seeded)` NCCH content inside a CIA via vendored ctrtool
@@ -314,17 +315,17 @@ and the two-key finding in
       the two-party test extracts a no-empty rebuild. The 3DS chain now
       reaches file level; Stratum's detectors can see inside 3DS titles.
 
-- [ ] **CIA content-chunk hash mismatch on two staged eShop titles
-      (investigation, 2026-08-20):** `BoxBoxBoy! (USA) (eShop).cia` and
-      `Mini Sports Collection (USA) (eShop).cia` both fail
-      `normalize(format="cia")` with `content chunk content.0000.ncch hash
-      mismatch - wrong slice or corrupt`. `Biohazard - The Mercenaries 3D
-      (Japan).cia` normalizes fine from the same drop, so the CIA path is not
-      globally broken. Determine which it is — a slicing bug on some content
-      layout (e.g. index/offset handling when the chunk record set differs),
-      or two genuinely bad dumps — before treating either title as usable
-      media. Cheap to settle: compare the TMD chunk records and computed vs.
-      declared SHA-256 against a `ctrtool` listing of the same file.
+- [x] **CIA content-chunk hash mismatch on two staged eShop titles
+      (investigation, 2026-08-20):** **RESOLVED 2026-08-21.** Not bad dumps
+      and not a slice-offset bug. Both titles are two-content CDN-encrypted
+      CIAs (TMD type bit 0); ctrtool `-y` reports the TMD hashes GOOD because
+      it hashes the **titlekey-decrypted** blob. The CIA normalizer was
+      hashing on-media ciphertext. Fix: decrypt-then-hash when the encrypted
+      flag is set (`slot0x3DKeyX` + `commonN` as keyY through the hardware
+      key generator; content IV = index as BE u16). FileTree still exposes
+      on-media slices. BoxBoxBoy (0x5956000 + 0x78000) and Mini Sports
+      (0x424f000 + 0x24000) now normalize green against the parked keyset;
+      Biohazard (flag clear) stays keyless. See the 2026-08-21 log entry.
 
 - [~] **RVZ / WBFS / GCZ / NKit — dropped 2026-08-20, then the premise was
       corrected the same day. LIVE DECISION, not a settled drop.** The drop

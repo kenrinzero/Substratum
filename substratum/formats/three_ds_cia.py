@@ -2,11 +2,13 @@
 
 A CIA (CTR Importable Archive) is the eShop/install container: a fixed
 CiaHeader followed by a certificate chain, a ticket, a TMD (title metadata),
-one or more content blobs, and a footer. This unit reads only the header's
+one or more content blobs, and a footer. This unit reads the header's
 section-size table and the TMD's content-chunk records, and returns every
-section as an opaque slice into the original image. It does NOT decrypt the
-ticket's title key, parse the NCCH content, or validate TMD/RSA signatures —
-those are later caller-visible layers (DESIGN.md section 1):
+section as an opaque slice into the original image. CDN-encrypted chunks
+(TMD type bit 0) have their TMD SHA-256 verified after titlekey decrypt;
+the FileTree still exposes the on-media ciphertext. It does not parse NCCH
+content or validate TMD/RSA signatures — those are later caller-visible
+layers (DESIGN.md section 1):
 
   normalize("game.cia")                          -> FileTree of sections
   normalize(tree, format="3ds-ncch-enc")         -> decrypt the content blob
@@ -17,19 +19,29 @@ section lands at align64(header+cert+ticket+tmd)):
   [CiaHeader 0x2020][CertChain][Ticket][TMD][Content(s)][Footer]
 
 The independent correctness anchor is the TMD: each content-chunk record
-declares the content's SHA-256, and this normalizer stream-hashes each
-exposed content slice against it (a wrong slice fails structurally).
+declares the content's SHA-256. For unencrypted chunks that hash is of the
+on-media bytes; for chunks with the TMD encrypted flag (bit 0) it is of the
+**titlekey-decrypted** blob (AES-128-CBC, IV = content index as BE u16 at
+the start of a zeroed 16-byte block — ctrtool CiaProcess). The FileTree
+still exposes on-media slices; only the structural hash check decrypts.
+eShop CIAs therefore need the operator keyset (``SUBSTRATUM_3DS_KEYSET_FILE``,
+``slot0x3DKeyX`` + ``commonN`` as keyY; the AES common key is the hardware
+key-generator normal key). Cartridge-dump CIAs with the encrypted flag clear
+stay keyless.
 
 Runtime is stdlib-only. CIA section sizes are plain bytes; the header fields
-and the TMD are big-endian (per 3DBrew).
+and the TMD/ticket bodies are big-endian (per 3DBrew).
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import struct
 from dataclasses import dataclass
+from pathlib import Path
 
+from substratum._aes import cbc_decrypt_blocks, expand_key, normalkey_from_keyxy
 from substratum.contract import ByteSource, FileEntry, FileSource, FileTree
 
 __all__ = ["sniff", "normalize_3ds_cia"]
@@ -69,6 +81,17 @@ _TMD_CONTENT_INDEX_OFFSET = 0x04  # u16 BE, within a record
 _TMD_CONTENT_TYPE_OFFSET = 0x06  # u16 BE
 _TMD_CONTENT_SIZE_OFFSET = 0x08  # u64 BE
 _TMD_CONTENT_HASH_OFFSET = 0x10  # 0x20 bytes
+_CONTENT_TYPE_ENCRYPTED = 0x0001
+
+# Ticket body (after the signature region) field offsets. For RSA-2048-SHA256
+# (sig region 0x140) these land at the classic 0x1BF / 0x1DC / 0x1F1 file
+# offsets; deriving them from the sig region keeps ECDSA tickets consistent.
+_TICKET_TITLEKEY_OFFSET = 0x7F  # 16 bytes, AES-CBC encrypted
+_TICKET_TITLE_ID_OFFSET = 0x9C  # u64 BE
+_TICKET_KEY_ID_OFFSET = 0xB1  # u8, selects common0..common5 as slot 0x3D keyY
+_AES_BLOCK = 16
+_KEYSET_ENV = "SUBSTRATUM_3DS_KEYSET_FILE"
+_COMMON_KEYX_NAME = "slot0x3DKeyX"
 
 
 def _align64(value: int) -> int:
@@ -80,6 +103,7 @@ class _ContentRecord:
     index: int
     size: int
     hash: bytes
+    encrypted: bool
 
 
 def sniff(source: ByteSource) -> bool:
@@ -192,7 +216,15 @@ def _parse_tmd(tmd: bytes) -> list[_ContentRecord]:
         seen_indices.add(index)
         size = struct.unpack_from(">Q", rec, _TMD_CONTENT_SIZE_OFFSET)[0]
         digest = rec[_TMD_CONTENT_HASH_OFFSET : _TMD_CONTENT_HASH_OFFSET + 0x20]
-        records.append(_ContentRecord(index=index, size=size, hash=digest))
+        ctype = struct.unpack_from(">H", rec, _TMD_CONTENT_TYPE_OFFSET)[0]
+        records.append(
+            _ContentRecord(
+                index=index,
+                size=size,
+                hash=digest,
+                encrypted=bool(ctype & _CONTENT_TYPE_ENCRYPTED),
+            )
+        )
     # Content records appear in ascending index order.
     ordered = sorted(records, key=lambda r: r.index)
     if [r.index for r in ordered] != [r.index for r in records]:
@@ -210,6 +242,105 @@ def _stream_hash(src: ByteSource, offset: int, size: int) -> bytes:
             raise ValueError("short read while hashing a CIA content chunk")
         digest.update(chunk)
         consumed += len(chunk)
+    return digest.digest()
+
+
+def _content_iv(index: int) -> bytes:
+    """AES-CBC IV for one CIA content blob: BE u16 index at byte 0, rest zero."""
+    iv = bytearray(_AES_BLOCK)
+    struct.pack_into(">H", iv, 0, index)
+    return bytes(iv)
+
+
+def _load_keyset_value(slot_name: str) -> bytes:
+    """Load one 16-byte key from the operator keyset. Presence-only; never logs keys."""
+    raw = os.environ.get(_KEYSET_ENV)
+    if not raw:
+        raise ValueError(
+            f"{_KEYSET_ENV} is not set; CDN-encrypted CIA content needs "
+            "the 3DS keyset (see docs/3DS-KEYED-WORK.md)"
+        )
+    path = Path(raw)
+    if not path.is_file():
+        raise ValueError(
+            f"{_KEYSET_ENV} points to a missing file "
+            "(see docs/3DS-KEYED-WORK.md)"
+        )
+    needle = f"{slot_name}="
+    with path.open("r", encoding="ascii", errors="replace") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped.startswith(needle):
+                hexval = stripped[len(needle) :].strip()
+                try:
+                    key = bytes.fromhex(hexval)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{slot_name} in the keyset is not valid hex "
+                        "(see docs/3DS-KEYED-WORK.md)"
+                    ) from exc
+                if len(key) != _AES_BLOCK:
+                    raise ValueError(
+                        f"{slot_name} in the keyset is not 16 bytes "
+                        "(see docs/3DS-KEYED-WORK.md)"
+                    )
+                return key
+    raise ValueError(
+        f"{slot_name} not found in the keyset "
+        "(see docs/3DS-KEYED-WORK.md)"
+    )
+
+
+def _common_normal_key(key_id: int) -> bytes:
+    """AES key for ticket titlekey decrypt: slot0x3D keyX + commonN keyY."""
+    if key_id < 0 or key_id > 5:
+        raise ValueError(f"unsupported CIA ticket common-key index {key_id}")
+    keyx = _load_keyset_value(_COMMON_KEYX_NAME)
+    keyy = _load_keyset_value(f"common{key_id}")
+    return normalkey_from_keyxy(keyx, keyy)
+
+
+def _title_key_from_ticket(ticket: bytes) -> bytes:
+    """Decrypt the ticket titlekey. The result stays in memory; never logged."""
+    if len(ticket) < 4:
+        raise ValueError("ticket too small to contain a signature type")
+    sig_type = struct.unpack_from(">I", ticket, 0)[0]
+    sig_size = _TMD_SIG_SIZE.get(sig_type)
+    if sig_size is None:
+        raise ValueError(f"unsupported ticket signature type {sig_type:#x}")
+    body = sig_size
+    needed = body + _TICKET_KEY_ID_OFFSET + 1
+    if len(ticket) < needed:
+        raise ValueError("ticket too small to contain a titlekey")
+    enc_titlekey = ticket[body + _TICKET_TITLEKEY_OFFSET : body + _TICKET_TITLEKEY_OFFSET + _AES_BLOCK]
+    title_id = struct.unpack_from(">Q", ticket, body + _TICKET_TITLE_ID_OFFSET)[0]
+    key_id = ticket[body + _TICKET_KEY_ID_OFFSET]
+    common_key = _common_normal_key(key_id)
+    iv = bytearray(_AES_BLOCK)
+    struct.pack_into(">Q", iv, 0, title_id)
+    return cbc_decrypt_blocks(expand_key(common_key), bytes(iv), enc_titlekey)
+
+
+def _stream_hash_cbc(
+    src: ByteSource, offset: int, size: int, title_key: bytes, iv: bytes
+) -> bytes:
+    """SHA-256 of AES-128-CBC decrypted content, streamed in 1 MiB chunks."""
+    if size % _AES_BLOCK != 0:
+        raise ValueError(
+            "CDN-encrypted CIA content size is not a multiple of the AES block"
+        )
+    digest = hashlib.sha256()
+    round_keys = expand_key(title_key)
+    prev_iv = iv
+    consumed = 0
+    while consumed < size:
+        n = min(1 << 20, size - consumed)
+        chunk = src.read_at(offset + consumed, n)
+        if len(chunk) != n:
+            raise ValueError("short read while hashing a CIA content chunk")
+        digest.update(cbc_decrypt_blocks(round_keys, prev_iv, chunk))
+        prev_iv = chunk[-_AES_BLOCK:]
+        consumed += n
     return digest.digest()
 
 
@@ -243,7 +374,7 @@ def normalize_3ds_cia(source) -> FileTree:
     content_cursor = offsets["content"]
     content_end = content_cursor + sizes["content"]
     entries: list[FileEntry] = []
-    chunk_specs: list[tuple[str, int, int, bytes]] = []  # (path, off, size, hash)
+    chunk_specs: list[tuple[str, int, int, int, bytes, bool]] = []
     for rec in records:
         if content_cursor + rec.size > content_end:
             raise ValueError(
@@ -252,7 +383,9 @@ def normalize_3ds_cia(source) -> FileTree:
                 f"exceeds content section"
             )
         path = f"content.{rec.index:04x}.ncch"
-        chunk_specs.append((path, content_cursor, rec.size, rec.hash))
+        chunk_specs.append(
+            (path, rec.index, content_cursor, rec.size, rec.hash, rec.encrypted)
+        )
         content_cursor = _align64(content_cursor + rec.size)
     if content_cursor != content_end:
         raise ValueError(
@@ -260,9 +393,15 @@ def normalize_3ds_cia(source) -> FileTree:
             f"ends at {content_cursor:#x}, content section ends at {content_end:#x}"
         )
 
+    title_key: bytes | None = None
+    if any(encrypted for _p, _i, _o, _s, _h, encrypted in chunk_specs):
+        ticket = src.read_at(offsets["ticket"], sizes["ticket"])
+        title_key = _title_key_from_ticket(ticket)
+
     # Build the section entries in on-media order: header/cert/ticket/tmd, then
     # content chunks, then the trailing footer. Content chunks are verified
-    # against their TMD-declared hash; the rest are opaque.
+    # against their TMD-declared hash (decrypt-then-hash when the encrypted
+    # flag is set); the rest are opaque.
     for name in ("header", "cert", "ticket", "tmd"):
         entries.append(
             FileEntry(
@@ -272,8 +411,15 @@ def normalize_3ds_cia(source) -> FileTree:
                 size=sizes[name],
             )
         )
-    for path, offset, size, expected_hash in chunk_specs:
-        actual = _stream_hash(src, offset, size)
+    for path, index, offset, size, expected_hash, encrypted in chunk_specs:
+        if encrypted:
+            if title_key is None:
+                raise ValueError("CDN-encrypted CIA content is missing a titlekey")
+            actual = _stream_hash_cbc(
+                src, offset, size, title_key, _content_iv(index)
+            )
+        else:
+            actual = _stream_hash(src, offset, size)
         if actual != expected_hash:
             raise ValueError(
                 f"content chunk {path} hash mismatch — wrong slice or corrupt"
