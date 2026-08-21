@@ -252,6 +252,12 @@ and the two-key finding in
       refuses multi-track discs by design, which is 13 of 40 sampled PS1
       titles (~32%), capping PS1 reach near 4,100 of 6,089. Widening that is
       a separate decision, not part of this fix.
+      **Operator drop (2026-08-21):** DVD-type PSP CHD is staged at
+      gitignored `fixtures/_local/7 Wonders of the Ancient World (USA).chd`
+      (`chdman info` 0.288: `Tag='DVD '`, 2048-byte units, zstd). Do not hunt
+      another; this closes the acquisition gate for the remaining `extractdvd`
+      retail proof. The `_TempFileSource` cue-path composition gap is still
+      open.
 
 - [x] **`zip` container layer — BUILT (consumer request from Stratum,
       2026-08-20; BIGGEST REACH, 14,643 corpus titles / 62% of the disc corpus):** the same `F:\game` inventory
