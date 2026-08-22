@@ -25,20 +25,49 @@ _PAD_SHORT = 0xFFFF
 _DIR_ATTR = 0x10
 _NAME_MAX = 255
 
+# Known descriptor base offsets (design spec § 9): a plain `.xiso` carries
+# the descriptor at 0x10000 (base 0); a full retail XGD dump embeds the game
+# partition after the decoy DVD-Video region. Probe order is plain first so
+# a trimmed image never pays for the retail probes.
+_KNOWN_BASE_OFFSETS = (0, 0x18300000, 0x0FD90000, 0x02080000)
 
-def sniff(source: ByteSource, *, base_offset: int = 0) -> bool:
-    """True when the source contains an XDVDFS volume descriptor.
 
-    ``base_offset`` shifts the expected descriptor to ``base_offset + 0x10000``;
-    the default ``0`` preserves the plain XISO layout and keeps existing
-    behavior byte-for-byte unchanged.
-    """
-    if base_offset < 0:
-        raise ValueError(f"base_offset must be >= 0 (got {base_offset})")
+def _magic_at(source: ByteSource, base_offset: int) -> bool:
     desc_offset = base_offset + _DESC_OFFSET
     if source.size() < desc_offset + _SECTOR:
         return False
     return source.read_at(desc_offset, len(_MAGIC)) == _MAGIC
+
+
+def _probe_base_offset(source: ByteSource) -> int:
+    """The first known base whose descriptor magic matches.
+
+    Raises when none matches — the dispatcher only calls this after a
+    matching sniff, so in dispatch the raise is unreachable; a pinned
+    caller gets a clean structural refusal instead of a wrong parse.
+    """
+    for base in _KNOWN_BASE_OFFSETS:
+        if _magic_at(source, base):
+            return base
+    known = ", ".join(hex(base) for base in _KNOWN_BASE_OFFSETS)
+    raise ValueError(f"no XDVDFS descriptor at any known base offset ({known})")
+
+
+def sniff(source: ByteSource, *, base_offset: int | None = None) -> bool:
+    """True when the source contains an XDVDFS volume descriptor.
+
+    ``base_offset`` shifts the expected descriptor to ``base_offset + 0x10000``.
+    The default ``None`` probes the four known bases (plain `.xiso` and the
+    three retail XGD embeddings), which is what lets ``normalize()`` claim a
+    retail Xbox disc before ``iso9660`` claims its decoy DVD-Video partition.
+    An explicit ``int`` pins exactly one offset and preserves the pre-probe
+    meaning byte-for-byte.
+    """
+    if base_offset is not None:
+        if base_offset < 0:
+            raise ValueError(f"base_offset must be >= 0 (got {base_offset})")
+        return _magic_at(source, base_offset)
+    return any(_magic_at(source, base) for base in _KNOWN_BASE_OFFSETS)
 
 
 def _read_name(table: bytes, entry_offset: int) -> str:
@@ -159,18 +188,22 @@ def _walk_table(
         _walk_table(src, table, sibling_offset, prefix, src_size, entries, visited, dir_tables_seen, base_offset)
 
 
-def normalize_xdvdfs(source, *, base_offset: int = 0) -> FileTree:
+def normalize_xdvdfs(source, *, base_offset: int | None = None) -> FileTree:
     """Parse an XDVDFS image into a FileTree.
 
     ``base_offset`` shifts the descriptor, root table, and file payloads within a
     larger dump (e.g. a retail XGD1 image whose game partition starts at a
-    non-zero embedded offset). The default ``0`` keeps plain XISO images
-    byte-for-byte unchanged.
+    non-zero embedded offset). The default ``None`` probes the four known
+    bases (plain `.xiso` first, then the three retail XGD embeddings) so
+    ``normalize()`` reaches retail Xbox discs without a pin; an explicit
+    ``int`` keeps plain XISO handling byte-for-byte unchanged.
     """
+    src = source if isinstance(source, ByteSource) else FileSource(source)
+    if base_offset is None:
+        base_offset = _probe_base_offset(src)
     if base_offset < 0:
         raise ValueError(f"base_offset must be >= 0 (got {base_offset})")
 
-    src = source if isinstance(source, ByteSource) else FileSource(source)
     src_size = src.size()
     desc_offset = base_offset + _DESC_OFFSET
 

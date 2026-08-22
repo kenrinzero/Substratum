@@ -130,6 +130,93 @@ def test_embedded_descriptor_base_offset_is_supported(tmp_path):
     assert tree.entries[1].offset == base_offset + 0x90 * 0x800
 
 
+def test_probe_finds_the_descriptor_at_each_known_base(tmp_path, monkeypatch):
+    """base_offset=None probes the known bases; an explicit int pins one.
+
+    The retail XGD bases are hundreds of megabytes in, so the synthetic
+    probe builds the image at a patched candidate tuple — the real XGD1
+    constant is exercised end-to-end by the retail dispatch tests below.
+    """
+    import substratum.formats.xdvdfs as xdvdfs
+
+    image = tmp_path / "embedded.xiso"
+    base_offset = 0x2000
+    _make_minimal_xdvdfs(image, base_offset=base_offset, odd_right_pointer=True)
+
+    assert not sniff(FileSource(image))
+    with pytest.raises(ValueError, match="no XDVDFS descriptor"):
+        normalize_xdvdfs(image)
+
+    monkeypatch.setattr(xdvdfs, "_KNOWN_BASE_OFFSETS", (0, base_offset))
+    assert sniff(FileSource(image))
+    tree = normalize_xdvdfs(image)
+    assert sorted(e.path for e in tree.entries) == ["A" * 38, "B"]
+    assert tree.entries[0].offset == base_offset + 0x80 * 0x800
+
+    # An explicit pin is exact: the wrong offset refuses, the right one
+    # parses without any probing.
+    with pytest.raises(ValueError, match="bad descriptor magic"):
+        normalize_xdvdfs(image, base_offset=0)
+    assert normalize_xdvdfs(image, base_offset=base_offset).entries
+
+
+def test_probe_order_prefers_the_plain_xiso_base(tmp_path, monkeypatch):
+    import substratum.formats.xdvdfs as xdvdfs
+
+    image = tmp_path / "plain.xiso"
+    _make_minimal_xdvdfs(image)
+    monkeypatch.setattr(xdvdfs, "_KNOWN_BASE_OFFSETS", (0x4000, 0))
+    assert sniff(FileSource(image))
+    tree = normalize_xdvdfs(image)
+    assert tree.entries[0].offset == 0x80 * 0x800
+
+
+def test_negative_base_offset_pin_is_refused(tmp_path):
+    image = tmp_path / "plain.xiso"
+    _make_minimal_xdvdfs(image)
+    with pytest.raises(ValueError, match="base_offset must be >= 0"):
+        sniff(FileSource(image), base_offset=-1)
+    with pytest.raises(ValueError, match="base_offset must be >= 0"):
+        normalize_xdvdfs(image, base_offset=-1)
+
+
+RETAIL_XGD1_DISCS = (
+    RETAIL_IMAGE,
+    ROOT / "fixtures" / "_local" / "KotOR (USA Rev 1).iso",
+    ROOT / "fixtures" / "_local" / "Prince of Persia (USA).iso",
+)
+
+
+@pytest.mark.skipif(
+    not all(p.exists() for p in RETAIL_XGD1_DISCS),
+    reason="all three staged retail XGD1 discs are required",
+)
+def test_normalize_dispatch_returns_the_game_filesystem_not_the_decoy():
+    """The ask-9 regression: `normalize()` on a retail Xbox disc must claim
+    the embedded XDVDFS filesystem, not hand back the decoy DVD-Video
+    partition that `iso9660` legitimately sees. Drives the dispatcher —
+    every earlier test in this file pinned `normalize_xdvdfs` directly,
+    which is exactly why the silent decoy went unmeasured.
+    """
+    from substratum import normalize
+
+    tree = normalize(RETAIL_IMAGE)
+    assert tree.format == "xdvdfs"
+    paths = {e.path for e in tree.entries}
+    assert not any(p.startswith("VIDEO_TS") for p in paths)
+    assert "default.xbe" in paths
+    assert sum(1 for p in paths if p.lower().endswith(".bik")) == 218
+
+    pinned = normalize(RETAIL_IMAGE, format="xdvdfs")
+    assert {e.path for e in pinned.entries} == paths
+
+    for disc in RETAIL_XGD1_DISCS[1:]:
+        t = normalize(disc)
+        assert t.format == "xdvdfs"
+        assert not any(e.path.startswith("VIDEO_TS") for e in t.entries)
+        assert any(e.path == "default.xbe" for e in t.files())
+
+
 @pytest.mark.skipif(
     not RETAIL_IMAGE.exists() or _xdvdfs_exe() is None,
     reason="retail jig and xdvdfs-rs oracle must be staged locally",
@@ -237,7 +324,7 @@ def test_corrupted_magic_is_structural_red(tmp_path):
     data[0x10000] ^= 0xFF
     bad.write_bytes(bytes(data))
     problems = _checks(normalize_xdvdfs, fixture=bad)
-    assert_structural_failure(problems, "bad descriptor magic")
+    assert_structural_failure(problems, "no XDVDFS descriptor at any known base offset")
 
 
 def test_corrupted_magic_tail_refused(tmp_path):

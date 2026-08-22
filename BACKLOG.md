@@ -7,8 +7,9 @@ byte-range fidelity where available.
 
 ## Current boundary
 
-Version **0.0.27** is clean (the `ciso` sibling unit landed 2026-08-21,
-after `nkit` on 0.0.26, `wbfs` on 0.0.25, `gcz` on 0.0.24 over a
+Version **0.0.28** is clean (consumer ask 9's dispatch probe landed
+2026-08-22, after the `ciso` sibling unit on 0.0.27,
+`nkit` on 0.0.26, `wbfs` on 0.0.25, `gcz` on 0.0.24 over a
 shared-DolphinTool refactor, `rvz` on 0.0.23, `chd` retail closure on
 0.0.22, `3ds-romfs` on 0.0.21 and `zip` on 0.0.20). **24 normalizers**
 are GREEN:
@@ -22,7 +23,15 @@ Key1/`0x1B`). The `rvz` unit closes the GC+Wii gap via `DolphinTool 2606a` (`GT 
 DVD-type PSP CHD extractdvd + iso9660 walks clean, and CD-type PS1 CHD
 composes all the way through `chd → ps1-bincue → iso9660` end-to-end on real
 retail images (BursTrick round-trip; the `_TempFileSource.path` exposure makes
-sibling `.cue` discovery work in the composed path). **Next: one open consumer ask** — XGD base-offset support in dispatch (ask 9 from Stratum, 2026-08-21). `normalize()` currently answers a retail Xbox disc with the decoy DVD-Video partition instead of the game filesystem; it is the only thing blocking Stratum's Unit 3. Details in § Next. The `wux` / Wii U platform call
+sibling `.cue` discovery work in the composed path). **The queue is empty
+again:** consumer ask 9 (XGD base-offset support in dispatch) is RESOLVED
+2026-08-22 — `xdvdfs` sniff and `normalize_xdvdfs` now probe the four known
+descriptor bases when unpinned, so `normalize()` claims a retail Xbox disc's
+embedded game filesystem instead of handing back the decoy DVD-Video
+partition; dispatcher-level retail tests and the `xdvdfs`-ahead-of-`iso9660`
+order pin landed with it (see the RESOLVED note on the ask 9 item in § Next).
+That was the only thing blocking Stratum's Unit 3; its `bink.video`
+measurement is now reachable. The `wux` / Wii U platform call
 was **resolved 2026-08-21 (user decision): out of scope for Substratum**,
 split as a future standalone project — the chain assessment lives at
 `.atelier/ideas/wii-u.md` (the staged Your Shape sample was removed from
@@ -596,10 +605,34 @@ NCCH crypto method): see
       read the crypto method, never the firmware version — a title can
       require FW 9.3+ and still ship 7.x (`0x01`) crypto.
 
-- [ ] **XGD base-offset support in DISPATCH, not just in the parser
+- [x] **XGD base-offset support in DISPATCH, not just in the parser
       (consumer ask 9 from Stratum, filed 2026-08-21; the unfinished half
-      of ask 5 above, not a new request; HIGHEST VALUE — it is the only
-      thing between Stratum's Unit 3 and its 7/9 target):**
+      of ask 5 above, not a new request; RESOLVED 2026-08-22, 0.0.28):**
+
+      **RESOLVED 2026-08-22 (0.0.28), exactly the filed shape:** `sniff`
+      and `normalize_xdvdfs` take `base_offset: int | None = None`; the
+      default probes the four known bases in order (plain `.xiso` `0`,
+      XGD1 `0x18300000`, XGD2 `0x0FD90000`, XGD3 `0x02080000`), an
+      explicit `int` still pins exactly one offset. No registry reorder;
+      the dispatcher needed no change at all (it passes no kwargs, so it
+      gets the probe). Verified on all three staged XGD1 discs through
+      the dispatcher: Jade Empire 4,022 entries / 218 loose `.bik`,
+      KotOR 16,205 entries, Prince of Persia 179 entries — zero
+      `VIDEO_TS` decoy anywhere. Landed with it: a dispatcher-level
+      retail test (`test_normalize_api.py` + `test_xdvdfs.py` drive
+      `normalize()` on retail bytes — the class of test whose absence
+      let the silent decoy ship), a static registry-position pin that
+      `xdvdfs` stays ahead of `iso9660`, and the retail double-claim
+      assertion (both sniffers accept the disc; order sends it to the
+      game filesystem). One deliberate message change: an unpinned call
+      whose descriptor magic matches no known base now refuses with
+      "no XDVDFS descriptor at any known base offset" before the parse,
+      replacing the per-base "bad descriptor magic" on that path (the
+      pinned path keeps it); the corrupted-magic structural-red test is
+      re-pinned to the new wording.
+
+      The filing narrative below is kept as the durable record.
+
       the 2026-08-20 `xdvdfs` work fixed the parser and retail-proved it
       (`3b119aa`), but `base_offset` arrived as a *parameter only*, so
       nothing that goes through the public `normalize()` can reach a

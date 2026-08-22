@@ -215,6 +215,33 @@ def test_the_cia_ordering_is_load_bearing():
     )
 
 
+def test_xdvdfs_is_registered_ahead_of_iso9660():
+    """A retail Xbox disc carries a decoy DVD-Video partition that `iso9660`
+    legitimately claims; the XGD-aware `xdvdfs` sniffer must claim it first,
+    or `normalize()` silently answers with the six-file video decoy instead
+    of the game filesystem (consumer ask 9, 2026-08-21). Same ordering class
+    as `ciso`/`cso` — pinned statically so a reorder fails without fixtures.
+    """
+    names = [e.name for e in _FORMATS]
+    assert names.index("xdvdfs") < names.index("iso9660"), names
+
+
+def test_xdvdfs_claims_a_retail_disc_before_iso9660():
+    """The double-claim, asserted on retail bytes: both sniffers accept the
+    disc (the decoy is a valid ISO9660 volume), and registry order sends it
+    to the game filesystem.
+    """
+    jade = LOCAL / "Jade Empire (Japan).iso"
+    if not jade.is_file():
+        pytest.skip("retail XGD1 disc not staged")
+    claimants = [e.name for e in _FORMATS if e.sniff(FileSource(jade))]
+    assert claimants[0] == "xdvdfs", claimants
+    assert "iso9660" in claimants, (
+        "the decoy DVD-Video partition no longer sniffs as iso9660 — "
+        "re-check the double-claim before relaxing the registry order"
+    )
+
+
 def test_format_pin_selects_normalizer_without_sniffing():
     fixture = FIXTURES / "wii_u8_arc" / "synthetic" / "archive.arc"
     result = normalize(FileSource(fixture), format="wii-u8-arc")

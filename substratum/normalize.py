@@ -137,6 +137,11 @@ _FORMATS = (
     _Format("nkit", sniff_nkit, normalize_nkit),
     _Format("gc-fst", sniff_gc_fst, normalize_gc_fst),
     _Format("wii-u8-arc", sniff_wii_u8_arc, normalize_wii_u8_arc),
+    # A retail Xbox XGD dump embeds its XDVDFS partition after a decoy
+    # DVD-Video region that `iso9660` below legitimately claims; the
+    # xdvdfs sniffer probes the known embedded bases and MUST stay ahead
+    # of iso9660 or normalize() silently answers with the decoy. Pinned
+    # by test_normalize_api.py.
     _Format("xdvdfs", sniff_xdvdfs, normalize_xdvdfs),
     _Format("saturn-dc-raw", sniff_saturn_dc_raw, normalize_saturn_dc_raw),
     _Format("ps1-bincue", sniff_ps1_bincue, normalize_ps1_bincue),

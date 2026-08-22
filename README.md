@@ -19,7 +19,7 @@ A normalizer with perfect enumeration and wrong slicing dies at that gate
 
 ## Status
 
-Version 0.0.27 (2026-08-21): the interface and manifest schema remain
+Version 0.0.28 (2026-08-22): the interface and manifest schema remain
 frozen, the public one-layer dispatcher is live, and twenty-four real
 normalizers are green: `iso9660`, `gc-fst`, `chd`, `ps1-bincue`,
 `saturn-dc-raw`, `ciso`, `cso`, `zip`, `rvz`, `gcz`, `wbfs`, `nkit`,
@@ -44,6 +44,7 @@ authored from pinned 7-Zip's independent listing and extraction.
 `wbfs` reconstructs the scrubbed Wii container through wit (`wit copy`), zero-filling scrubbed clusters to the canonical full-size image — the independent differential is a spec-derived wlba-LUT decoder in the tests (DolphinTool's WBFS decode is mangled and unusable as an oracle; recorded), proven sha256-identical to wit over the entire 4.7 GB anchor.
 `nkit` recovers GC `.nkit.iso` to the full-size original through NKit 1.4 (the last public NKit release — NKit 2 is Discord-only, recorded); the differential is a byte-exact retail round-trip (MKDD → nkit → decode, sha256-identical) plus the recovered/compacted gc-fst file-map agreement, and the sniffer must precede `gc-fst` because an nkit begins with a real GC disc header.
 `ciso` decodes wit's GC/Wii compact-ISO container — a byte-per-block map over raw 2 MiB slots in the fixed Wii-size address space (no compression) — sharing the `CISO` magic with the PSP `cso` unit; the two sniffers disambiguate on the LE u32 at 0x04 (`0x200000` block size vs PSP header size `0x18`), `ciso` is registered first, and NKit 2's appended recovery trailer is tolerated. Proven against wit's own decode on a wit-authored CISO (byte-exact over the full image) and on the NKit-authored Luigi's Mansion retail anchor through the gc-fst composition, with wit's GC junk scrubbing characterized as one-directional and never inside game files.
+`xdvdfs` dispatch now probes the four known XGD descriptor bases (plain `.xiso` `0`, XGD1 `0x18300000`, XGD2 `0x0FD90000`, XGD3 `0x02080000`; consumer ask 9, 2026-08-22): a retail Xbox dump embeds its XDVDFS partition after a decoy DVD-Video region that `iso9660` legitimately claims, so `xdvdfs` is registered ahead of it and claims the embedded partition first — proven through `normalize()` on three staged XGD1 retail discs (Jade Empire, KotOR, Prince of Persia) with the double-claim and the registry order both test-pinned.
 `3ds-romfs` walks the decrypted IVFC-wrapped RomFS layer with the
 complete hash tree verified eagerly (master <- level0 <- level1 <- data),
 proven on staged retail media through the full cci → ncch → romfs
